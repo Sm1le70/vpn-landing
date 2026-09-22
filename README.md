@@ -40,21 +40,136 @@ npm run demo
 
 ## Установка на сервер
 
+Команды ниже рассчитаны на Ubuntu/Debian и пользователя с `sudo`. Замените `https://github.com/USER/vpn-landing.git` на адрес вашего репозитория, а `example.com` — на ваш домен (A-запись домена должна указывать на IP сервера).
+
+### 1. Docker и Git
+
+Пропустите, если Docker уже стоит (например, рядом с панелью Remnawave):
+
 ```bash
-cp .env.example .env        # заполнить
-mkdir -p data && chown 1000:1000 data
+sudo apt update && sudo apt install -y git curl
+curl -fsSL https://get.docker.com | sudo sh
+docker compose version    # проверка
+```
+
+### 2. Скачать проект
+
+```bash
+sudo mkdir -p /opt/vpn-landing && sudo chown $USER: /opt/vpn-landing
+git clone https://github.com/USER/vpn-landing.git /opt/vpn-landing
+cd /opt/vpn-landing
+```
+
+Если репозиторий **приватный**, нужен доступ только на чтение. Проще всего — deploy key:
+
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/vpn_landing_deploy -N ""
+cat ~/.ssh/vpn_landing_deploy.pub
+# GitHub → репозиторий → Settings → Deploy keys → Add deploy key (без права записи)
+GIT_SSH_COMMAND="ssh -i ~/.ssh/vpn_landing_deploy" \
+  git clone git@github.com:USER/vpn-landing.git /opt/vpn-landing
+cd /opt/vpn-landing
+git config core.sshCommand "ssh -i ~/.ssh/vpn_landing_deploy"   # чтобы работал git pull
+```
+
+### 3. Настроить `.env`
+
+```bash
+cp .env.example .env
+# Секреты генерируются сразу в .env:
+sed -i "s|^APP_SECRET=.*|APP_SECRET=$(openssl rand -hex 32)|" .env
+sed -i "s|^ADMIN_PATH=.*|ADMIN_PATH=/panel-$(openssl rand -hex 6)|" .env
+nano .env
+```
+
+В `nano` заполните как минимум:
+- `SITE_URL=https://example.com`;
+- `REMNAWAVE_URL`, `REMNAWAVE_TOKEN`, `REMNAWAVE_SQUADS`, `REMNAWAVE_WEBHOOK_SECRET`;
+- `PLATEGA_MERCHANT_ID`, `PLATEGA_SECRET`;
+- `RESEND_API_KEY`, `MAIL_FROM`.
+
+Название, контакты и дату документов можно задать здесь же или потом в админке. Путь к админке посмотрите командой `grep ADMIN_PATH .env` и сохраните его — он нужен для входа.
+
+`.env` и папка `data/` в Git не попадают (см. `.gitignore`), поэтому ключи и база не утекут при `git push`.
+
+### 4. Запустить
+
+```bash
+mkdir -p data && sudo chown 1000:1000 data     # контейнер работает от пользователя node (uid 1000)
 docker compose up -d --build
+docker compose logs vpn-landing                # ссылка для создания первого админа
 ```
 
-Приложение слушает `127.0.0.1:3000`. Перед ним нужен reverse-proxy с валидным SSL: Platega не принимает callback на HTTP и самоподписанные сертификаты. Пример для Caddy:
+Приложение слушает `127.0.0.1:3000` — снаружи оно недоступно, пока перед ним не встанет reverse-proxy.
 
-```
+### 5. HTTPS через Caddy
+
+Platega принимает callback только на HTTPS с валидным сертификатом. Если на сервере ещё нет reverse-proxy:
+
+```bash
+sudo apt install -y caddy
+sudo tee /etc/caddy/Caddyfile >/dev/null <<'EOF'
 example.com {
     reverse_proxy 127.0.0.1:3000
 }
+EOF
+sudo systemctl reload caddy
 ```
 
-Без Docker: `npm ci && npm start` (нужен Node.js ≥ 22.13).
+Caddy сам получит сертификат Let's Encrypt (порты 80 и 443 должны быть открыты). Если на сервере уже работает Caddy или nginx панели Remnawave, добавьте в его конфиг отдельный блок для домена лендинга с тем же `reverse_proxy 127.0.0.1:3000`.
+
+**Панель Remnawave на этом же сервере.** Сайт может обращаться к ней по внутренней сети Docker, без выхода в интернет. Для этого:
+1. в `docker-compose.yml` раскомментируйте блоки `networks` (сеть панели обычно называется `remnawave-network`, проверьте командой `docker network ls`);
+2. укажите в `.env` `REMNAWAVE_URL=http://remnawave:3000`;
+3. выполните `docker compose up -d`.
+
+### 6. Проверить
+
+- `https://example.com` — лендинг, тарифы, `/terms`, `/privacy`, `/contacts`.
+- `https://example.com/<ADMIN_PATH>/` — админка: создайте первого администратора по ссылке из логов (шаг 4).
+- В кабинете Platega укажите callback `https://example.com/webhooks/platega`, в `.env` панели — вебхук `https://example.com/webhooks/remnawave` (подробности ниже, в разделе «Настройка»).
+- Сделайте тестовую оплату минимального тарифа.
+
+### Обновление
+
+```bash
+cd /opt/vpn-landing
+git pull
+docker compose up -d --build
+docker compose logs -f --tail=50 vpn-landing    # убедиться, что запустилось (Ctrl+C — выйти из логов)
+```
+
+База данных лежит в `data/` вне контейнера и при обновлении сохраняется, новые колонки добавляются автоматически.
+
+### Резервная копия
+
+Всё состояние — это `data/app.db` (пользователи, заказы, админы, настройки) и `.env`:
+
+```bash
+cd /opt/vpn-landing
+mkdir -p backups
+docker compose exec vpn-landing node -e "new (require('node:sqlite').DatabaseSync)('/app/data/app.db').exec(\"VACUUM INTO '/app/data/backup.db'\")"
+mv data/backup.db backups/app-$(date +%F).db && cp .env backups/env-$(date +%F)
+```
+
+Ежедневный бэкап по cron (хранятся 14 последних копий):
+
+```bash
+( crontab -l 2>/dev/null; echo "0 4 * * * cd /opt/vpn-landing && docker compose exec -T vpn-landing node -e \"new (require('node:sqlite').DatabaseSync)('/app/data/app.db').exec(\\\"VACUUM INTO '/app/data/backup.db'\\\")\" && mv data/backup.db backups/app-\$(date +\\%F).db && ls -1t backups/app-*.db | tail -n +15 | xargs -r rm" ) | crontab -
+```
+
+Восстановление: `docker compose down`, положить копию как `data/app.db`, `docker compose up -d`.
+
+### Полезные команды
+
+```bash
+docker compose ps                                  # статус
+docker compose logs -f vpn-landing                 # логи в реальном времени
+docker compose restart                             # перезапуск
+docker compose exec vpn-landing npm run admin:list # администраторы
+```
+
+Без Docker: `git clone …`, `cp .env.example .env`, затем `npm ci --omit=dev && npm start` (нужен Node.js ≥ 22.13; для автозапуска — systemd или pm2).
 
 ## Админка
 
