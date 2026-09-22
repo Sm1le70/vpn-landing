@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{title}}</title>
+    <meta name="description" content="{{description}}">
+    <meta name="theme-color" content="#0b0f17">
+    <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body class="page-{{page}}">
+<header class="header">
+    <div class="container header-inner">
+        <a class="logo" href="/">
+            <svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 2 4 7v8c0 7.2 5.1 13.3 12 15 6.9-1.7 12-7.8 12-15V7L16 2Z" fill="url(#lg)"/><path d="m11 16 3.5 3.5L21.5 12" stroke="#0b0f17" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/><defs><linearGradient id="lg" x1="4" y1="2" x2="28" y2="30"><stop stop-color="#6ea8ff"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient></defs></svg>
+            <span>{{brand}}</span>
+        </a>
+        <nav class="nav">
+            <a href="/#features">Возможности</a>
+            <a href="/#pricing">Тарифы</a>
+            <a href="/#faq">Вопросы</a>
+            <a href="/contacts">Поддержка</a>
+        </nav>
+        <a class="btn btn--small btn--primary" href="/cabinet">Личный кабинет</a>
+    </div>
+</header>
+
+<main>
+{{content}}
+</main>
+
+<footer class="footer">
+    <div class="container footer-grid">
+        <div>
+            <a class="logo" href="/"><span>{{brand}}</span></a>
+            <p class="muted">Сервис защищённого сетевого подключения. Цены указаны в рублях, оплата разовая — без автоматических списаний.</p>
+        </div>
+        <div>
+            <h4>Сервис</h4>
+            <ul>
+                <li><a href="/#pricing">Тарифы и цены</a></li>
+                <li><a href="/cabinet">Личный кабинет</a></li>
+                <li><a href="/#faq">Частые вопросы</a></li>
+            </ul>
+        </div>
+        <div>
+            <h4>Документы</h4>
+            <ul>
+                <li><a href="/terms">Пользовательское соглашение</a></li>
+                <li><a href="/privacy">Политика конфиденциальности</a></li>
+            </ul>
+        </div>
+        <div>
+            <h4>Поддержка</h4>
+            <ul>
+                <li>{{supportEmailLink}}</li>
+                <li>{{supportTelegramLink}}</li>
+                <li><a href="/contacts">Все контакты</a></li>
+            </ul>
+        </div>
+    </div>
+    <div class="container footer-bottom">
+        <span>© {{year}} {{brand}}</span>
+        {{verification}}
+    </div>
+</footer>
+</body>
+</html>

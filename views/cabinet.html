@@ -1,0 +1,73 @@
+<!-- title: Личный кабинет — {{brand}} | description: Управление подпиской {{brand}}: статус, ссылка для подключения, продление. -->
+<section class="section cabinet">
+    <div class="container cab-container">
+        <div id="banner" class="banner" hidden></div>
+
+        <!-- Вход -->
+        <div id="view-login" class="card auth-card" hidden>
+            <h1>Вход в личный кабинет</h1>
+            <p class="muted">Укажите email — пришлём одноразовый код. Если аккаунта ещё нет, он будет создан автоматически.</p>
+            <form id="form-email" class="form">
+                <label class="field">
+                    <span>Email</span>
+                    <input type="email" name="email" autocomplete="email" required placeholder="you@example.com">
+                </label>
+                <button class="btn btn--primary btn--block" type="submit">Получить код</button>
+            </form>
+            <form id="form-code" class="form" hidden>
+                <p class="muted">Код отправлен на <b id="code-email"></b>. Проверьте папку «Спам», если письма нет.</p>
+                <label class="field">
+                    <span>Код из письма</span>
+                    <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required placeholder="000000">
+                </label>
+                <button class="btn btn--primary btn--block" type="submit">Войти</button>
+                <button class="btn btn--link" type="button" id="btn-change-email">Изменить email</button>
+            </form>
+            <p class="form-error" id="login-error" hidden></p>
+            <p class="small muted">Продолжая, вы принимаете <a href="/terms" target="_blank">пользовательское соглашение</a> и <a href="/privacy" target="_blank">политику конфиденциальности</a>.</p>
+        </div>
+
+        <!-- Кабинет -->
+        <div id="view-dashboard" hidden>
+            <div class="cab-head">
+                <div>
+                    <h1>Личный кабинет</h1>
+                    <p class="muted" id="user-email"></p>
+                </div>
+                <button class="btn btn--ghost btn--small" id="btn-logout">Выйти</button>
+            </div>
+
+            <div class="card" id="sub-card"></div>
+
+            <div class="card" id="trial-card" hidden>
+                <h2>Бесплатный пробный период</h2>
+                <p class="muted" id="trial-text"></p>
+                <button class="btn btn--ghost" id="btn-trial">Активировать пробный период</button>
+            </div>
+
+            <div class="card" id="buy-card">
+                <h2 id="buy-title">Оформить подписку</h2>
+                <p class="muted">Разовая оплата без автосписаний. При продлении дни добавляются к текущему сроку.</p>
+                <form id="form-buy">
+                    <div class="plan-picker" id="plan-picker"></div>
+                    <label class="check">
+                        <input type="checkbox" name="agree" required>
+                        <span>Я принимаю <a href="/terms" target="_blank">пользовательское соглашение</a> и <a href="/privacy" target="_blank">политику конфиденциальности</a></span>
+                    </label>
+                    <button class="btn btn--primary btn--block" type="submit" id="btn-pay">Перейти к оплате</button>
+                    <p class="form-error" id="buy-error" hidden></p>
+                </form>
+            </div>
+
+            <div class="card" id="orders-card" hidden>
+                <h2>История платежей</h2>
+                <div class="table-wrap"><table class="orders"><thead><tr><th>Дата</th><th>Тариф</th><th>Сумма</th><th>Статус</th></tr></thead><tbody id="orders-body"></tbody></table></div>
+            </div>
+
+            <p class="small muted center">Вопросы по оплате или подключению — пишите {{supportContactsText}}.</p>
+        </div>
+
+        <div id="view-loading" class="center muted">Загрузка…</div>
+    </div>
+</section>
+<script src="/assets/cabinet.js" defer></script>

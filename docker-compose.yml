@@ -1,0 +1,23 @@
+services:
+  vpn-landing:
+    build: .
+    container_name: vpn-landing
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_PATH: /app/data/app.db
+    volumes:
+      - ./data:/app/data
+      # Начальные тарифы и приложения (используются, пока их не изменили в админке)
+      - ./config/plans.json:/app/config/plans.json:ro
+      - ./config/apps.json:/app/config/apps.json:ro
+    ports:
+      - "127.0.0.1:3000:3000"
+    # Если панель Remnawave запущена на этом же сервере в Docker, подключите сеть панели
+    # и укажите REMNAWAVE_URL=http://remnawave:3000
+    # networks:
+    #   - remnawave-network
+
+# networks:
+#   remnawave-network:
+#     external: true

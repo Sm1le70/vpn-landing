@@ -1,0 +1,62 @@
+[
+  {
+    "platform": "ios",
+    "title": "iPhone и iPad",
+    "apps": [
+      {
+        "name": "Happ",
+        "links": [
+          { "label": "App Store (РФ)", "url": "https://apps.apple.com/ru/app/happ-proxy-utility/id6783623643" },
+          { "label": "App Store", "url": "https://apps.apple.com/us/app/happ-proxy-utility/id6504287215" }
+        ]
+      },
+      {
+        "name": "v2RayTun",
+        "links": [{ "label": "App Store", "url": "https://apps.apple.com/app/v2raytun/id6476628951" }]
+      },
+      {
+        "name": "Hiddify",
+        "links": [{ "label": "App Store", "url": "https://apps.apple.com/app/hiddify-proxy-vpn/id6596777532" }]
+      }
+    ]
+  },
+  {
+    "platform": "android",
+    "title": "Android",
+    "apps": [
+      {
+        "name": "Happ",
+        "links": [{ "label": "Google Play", "url": "https://play.google.com/store/apps/details?id=com.happproxy" }]
+      },
+      {
+        "name": "v2RayTun",
+        "links": [{ "label": "Google Play", "url": "https://play.google.com/store/apps/details?id=com.v2raytun.android" }]
+      },
+      {
+        "name": "Hiddify",
+        "links": [
+          { "label": "Google Play", "url": "https://play.google.com/store/apps/details?id=app.hiddify.com" },
+          { "label": "APK (GitHub)", "url": "https://github.com/hiddify/hiddify-app/releases/latest" }
+        ]
+      }
+    ]
+  },
+  {
+    "platform": "windows",
+    "title": "Windows",
+    "apps": [
+      {
+        "name": "Happ",
+        "links": [{ "label": "Скачать .exe", "url": "https://github.com/Happ-proxy/happ-desktop/releases/latest/download/setup-Happ.x64.exe" }]
+      },
+      {
+        "name": "v2RayTun",
+        "links": [{ "label": "Скачать .exe", "url": "https://storage.v2raytun.com/v2RayTun_Setup.exe" }]
+      },
+      {
+        "name": "Hiddify",
+        "links": [{ "label": "Скачать .exe", "url": "https://github.com/hiddify/hiddify-app/releases/latest/download/Hiddify-Windows-Setup-x64.exe" }]
+      }
+    ]
+  }
+]

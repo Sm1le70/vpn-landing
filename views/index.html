@@ -1,0 +1,115 @@
+<!-- title: {{brand}} — защищённое подключение для всех ваших устройств | description: Шифрование соединения, высокая скорость и простая настройка. Тарифы от {{minPrice}}, разовая оплата без автосписаний. -->
+<section class="hero">
+    <div class="container hero-grid">
+        <div>
+            <div class="eyebrow">Шифрование · Скорость · Простота</div>
+            <h1>Защищённое подключение <span class="grad">за пару минут</span></h1>
+            <p class="lead">{{brand}} шифрует интернет-соединение и защищает ваши данные в домашних и публичных сетях Wi‑Fi. Один доступ на телефон, ноутбук и планшет.</p>
+            <div class="hero-cta">
+                <a class="btn btn--primary" href="#pricing">Выбрать тариф — от {{minPrice}}</a>
+                <a class="btn btn--ghost" href="/cabinet">Войти в кабинет</a>
+            </div>
+            <ul class="hero-points">
+                <li>Безлимитный трафик</li>
+                <li>{{devicesText}}</li>
+                <li>Без автосписаний</li>
+            </ul>
+        </div>
+        <div class="hero-visual" aria-hidden="true">
+            <div class="orb"></div>
+            <div class="card-float">
+                <div class="cf-row"><span class="dot dot--ok"></span>Соединение защищено</div>
+                <div class="cf-meter"><span style="width:86%"></span></div>
+                <div class="cf-stats">
+                    <div><b>TLS 1.3</b><small>шифрование</small></div>
+                    <div><b>24/7</b><small>доступность</small></div>
+                    <div><b>∞</b><small>трафик</small></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section id="features" class="section">
+    <div class="container">
+        <h2 class="section-title">Почему {{brand}}</h2>
+        <div class="features">
+            <div class="feature">
+                <div class="ficon">🔒</div>
+                <h3>Шифрование трафика</h3>
+                <p>Данные между устройством и сервером передаются в зашифрованном виде — пароли и переписка защищены в сетях кафе, отелей и аэропортов.</p>
+            </div>
+            <div class="feature">
+                <div class="ficon">⚡</div>
+                <h3>Высокая скорость</h3>
+                <p>Современные протоколы и быстрые серверы — видео, звонки и загрузки работают без задержек.</p>
+            </div>
+            <div class="feature">
+                <div class="ficon">📱</div>
+                <h3>Все платформы</h3>
+                <p>iOS, Android, Windows, macOS, Linux и Android TV. Одна ссылка-подписка на все устройства.</p>
+            </div>
+            <div class="feature">
+                <div class="ficon">♾️</div>
+                <h3>Безлимитный трафик</h3>
+                <p>Никаких лимитов по объёму — пользуйтесь сколько нужно в течение оплаченного периода.</p>
+            </div>
+            <div class="feature">
+                <div class="ficon">🧾</div>
+                <h3>Честная оплата</h3>
+                <p>Платите только за выбранный период. Никаких подписок с автосписанием — продлеваете, когда захотите.</p>
+            </div>
+            <div class="feature">
+                <div class="ficon">💬</div>
+                <h3>Живая поддержка</h3>
+                <p>Поможем с подключением и ответим на вопросы по почте и в Telegram.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="section section--alt">
+    <div class="container">
+        <h2 class="section-title">Как подключиться</h2>
+        <ol class="steps">
+            <li><b>Выберите тариф</b><span>Укажите email и оплатите удобным способом: СБП, банковская карта и другие методы на платёжной странице.</span></li>
+            <li><b>Получите ссылку</b><span>Сразу после оплаты персональная ссылка-подписка появится в личном кабинете и придёт на почту.</span></li>
+            <li><b>Добавьте в приложение</b><span>Импортируйте ссылку в приложение (Happ, v2RayTun, Hiddify и др.) или отсканируйте QR-код — и подключайтесь.</span></li>
+        </ol>
+    </div>
+</section>
+
+<section id="pricing" class="section">
+    <div class="container">
+        <h2 class="section-title">Тарифы и цены</h2>
+        <p class="section-sub">Все тарифы включают одинаковые возможности. Цена указана за весь период, оплата разовая.</p>
+        <div class="plans">
+{{plans}}
+        </div>
+        {{trialBlock}}
+    </div>
+</section>
+
+<section id="faq" class="section section--alt">
+    <div class="container narrow">
+        <h2 class="section-title">Частые вопросы</h2>
+        <details class="faq"><summary>Что я получаю после оплаты?</summary><p>Персональную ссылку-подписку на выбранный период. Она отображается в личном кабинете и дублируется на ваш email. Ссылку нужно добавить в приложение-клиент на вашем устройстве.</p></details>
+        <details class="faq"><summary>Будут ли автоматические списания?</summary><p>Нет. Каждая оплата разовая и покрывает только выбранный период. Чтобы продлить доступ, оплатите новый период в личном кабинете — дни добавятся к текущему сроку.</p></details>
+        <details class="faq"><summary>Сколько устройств можно подключить?</summary><p>{{devicesText}}. Устройства можно отвязать, обратившись в поддержку.</p></details>
+        <details class="faq"><summary>Какие способы оплаты доступны?</summary><p>Оплата проходит на защищённой странице платёжного сервиса: СБП, банковские карты и другие доступные методы. Данные карты не передаются и не хранятся на нашем сайте.</p></details>
+        <details class="faq"><summary>Можно ли вернуть деньги?</summary><p>Если доступ не был предоставлен или услуга не оказана по технической причине на нашей стороне — напишите в поддержку в течение 24 часов после оплаты. Подробные условия — в <a href="/terms">пользовательском соглашении</a>.</p></details>
+        <details class="faq"><summary>Как связаться с поддержкой?</summary><p>Напишите {{supportContactsText}}. Отвечаем ежедневно.</p></details>
+    </div>
+</section>
+
+<section class="section">
+    <div class="container">
+        <div class="cta">
+            <div>
+                <h2>Готовы подключиться?</h2>
+                <p class="muted">Оформление займёт пару минут, доступ — сразу после оплаты.</p>
+            </div>
+            <a class="btn btn--primary" href="#pricing">Выбрать тариф</a>
+        </div>
+    </div>
+</section>

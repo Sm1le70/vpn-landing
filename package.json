@@ -1,0 +1,24 @@
+{
+  "name": "vpn-landing",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Лендинг и личный кабинет для продажи подписок (Remnawave + Platega)",
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "demo": "node scripts/demo.js",
+    "check-wording": "node scripts/check-wording.js",
+    "admin:create": "node scripts/admin.js create",
+    "admin:reset": "node scripts/admin.js reset",
+    "admin:list": "node scripts/admin.js list"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "qrcode": "^1.5.4"
+  }
+}
