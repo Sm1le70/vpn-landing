@@ -40,7 +40,7 @@ npm run demo
 
 ## Установка на сервер
 
-Команды ниже рассчитаны на Ubuntu/Debian и пользователя с `sudo`. Замените `https://github.com/USER/vpn-landing.git` на адрес вашего репозитория, а `example.com` — на ваш домен (A-запись домена должна указывать на IP сервера).
+Команды ниже рассчитаны на Ubuntu/Debian и пользователя с `sudo`. Репозиторий: `https://github.com/Sm1le70/vpn-landing`. Замените `example.com` на ваш домен (A-запись домена должна указывать на IP сервера).
 
 ### 1. Docker и Git
 
@@ -56,7 +56,7 @@ docker compose version    # проверка
 
 ```bash
 sudo mkdir -p /opt/vpn-landing && sudo chown $USER: /opt/vpn-landing
-git clone https://github.com/USER/vpn-landing.git /opt/vpn-landing
+git clone https://github.com/Sm1le70/vpn-landing.git /opt/vpn-landing
 cd /opt/vpn-landing
 ```
 
@@ -67,7 +67,7 @@ ssh-keygen -t ed25519 -f ~/.ssh/vpn_landing_deploy -N ""
 cat ~/.ssh/vpn_landing_deploy.pub
 # GitHub → репозиторий → Settings → Deploy keys → Add deploy key (без права записи)
 GIT_SSH_COMMAND="ssh -i ~/.ssh/vpn_landing_deploy" \
-  git clone git@github.com:USER/vpn-landing.git /opt/vpn-landing
+  git clone git@github.com:Sm1le70/vpn-landing.git /opt/vpn-landing
 cd /opt/vpn-landing
 git config core.sshCommand "ssh -i ~/.ssh/vpn_landing_deploy"   # чтобы работал git pull
 ```
