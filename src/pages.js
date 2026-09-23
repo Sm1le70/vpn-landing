@@ -1,5 +1,6 @@
 // Серверный рендер страниц: views/*.html + общий layout. Плейсхолдеры: {{name}}.
 // Всё, что видит банк при проверке (тарифы, контакты, документы), есть в HTML без JavaScript.
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { config, ROOT_DIR } from './config.js';
@@ -7,6 +8,7 @@ import { getSettings, listPlans, onSettingsChange } from './settings.js';
 import { onBotReady, supportBotUsername } from './tgsupport.js';
 
 const VIEWS_DIR = path.join(ROOT_DIR, 'views');
+const ASSETS_DIR = path.join(ROOT_DIR, 'public', 'assets');
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const rub = (n) => `${Number(n).toLocaleString('ru-RU')} ₽`;
@@ -95,6 +97,25 @@ function fill(template, values) {
     return out;
 }
 
+// ?v=<хэш содержимого> у скриптов и стилей: после обновления браузер не берёт старую версию из кеша
+const assetVersions = new Map();
+function assetVersion(file) {
+    if (!assetVersions.has(file)) {
+        let v = '';
+        try {
+            v = crypto.createHash('sha256').update(fs.readFileSync(path.join(ASSETS_DIR, file))).digest('hex').slice(0, 10);
+        } catch {} // файла нет — ссылка остаётся без версии
+        if (process.env.NODE_ENV !== 'production') return v;
+        assetVersions.set(file, v);
+    }
+    return assetVersions.get(file);
+}
+const versionAssets = (html) =>
+    html.replace(/(["'])\/assets\/([\w.-]+\.(?:js|css))\1/g, (m, q, file) => {
+        const v = assetVersion(file);
+        return v ? `${q}/assets/${file}?v=${v}${q}` : m;
+    });
+
 const cache = new Map();
 let cacheYear = new Date().getFullYear();
 onSettingsChange(() => cache.clear());
@@ -113,13 +134,13 @@ export function renderPage(name) {
     const meta = source.match(/^<!--\s*title:\s*(.*?)\s*\|\s*description:\s*(.*?)\s*-->/);
     const body = meta ? source.slice(meta[0].length) : source;
     const values = vars();
-    const html = fill(read('layout.html'), {
+    const html = versionAssets(fill(read('layout.html'), {
         ...values,
         title: meta ? fill(meta[1], values) : values.brand,
         description: meta ? fill(meta[2], values) : '',
         page: name,
         content: fill(body, values),
-    });
+    }));
     if (process.env.NODE_ENV === 'production') cache.set(name, html);
     return html;
 }
