@@ -3,6 +3,7 @@
 // Привязка:        npm run demo:tg -- --start <токен из ссылки t.me/...?start=...>
 // От сотрудника:   npm run demo:tg -- --topic 2 --text "Ответ клиенту" [--reply-to <id>]
 // Закрыть тему:    npm run demo:tg -- --close 2     (открыть: --reopen 2)
+// Удалить тему:    npm run demo:tg -- --delete-topic 2
 import { parseArgs } from 'node:util';
 
 const { values: v } = parseArgs({
@@ -15,12 +16,14 @@ const { values: v } = parseArgs({
         topic: { type: 'string' },
         close: { type: 'string' },
         reopen: { type: 'string' },
+        'delete-topic': { type: 'string' },
         'reply-to': { type: 'string' },
     },
 });
 
 let body;
-if (v.close || v.reopen) body = { type: v.close ? 'close' : 'reopen', topic: v.close ?? v.reopen };
+if (v['delete-topic']) body = { type: 'delete-topic', topic: v['delete-topic'] };
+else if (v.close || v.reopen) body = { type: v.close ? 'close' : 'reopen', topic: v.close ?? v.reopen };
 else if (v.topic) body = { type: 'staff', topic: v.topic, text: v.text, replyTo: v['reply-to'] };
 else body = { type: 'client', user: v.user, name: v.name, username: v.username, text: v.start ? `/start ${v.start}` : v.text, replyTo: v['reply-to'] };
 

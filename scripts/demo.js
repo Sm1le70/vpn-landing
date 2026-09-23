@@ -139,7 +139,7 @@ function tgMethod(method, p) {
         case 'getMe': return TG_BOT;
         case 'setWebhook': return true;
         case 'getChat': return { id: TG_GROUP, type: 'supergroup', title: 'Поддержка (демо)', is_forum: true };
-        case 'getChatMember': return { status: 'administrator', user: TG_BOT, can_manage_topics: true };
+        case 'getChatMember': return { status: 'administrator', user: TG_BOT, can_manage_topics: true, can_delete_messages: true };
         case 'createForumTopic': {
             const id = tgNextTopic++;
             tgTopics.set(id, { name: p.name, closed: false });
@@ -162,8 +162,27 @@ function tgMethod(method, p) {
         }
         case 'sendMessage': {
             if (p.message_thread_id && !tgTopics.has(p.message_thread_id)) throw Object.assign(new Error('Bad Request: message thread not found'), { code: 400 });
-            console.log(`[demo tg] → ${tgWhere(p.chat_id, p.message_thread_id)}:\n${p.text}\n`);
-            return { message_id: tgStore(p.chat_id, { text: p.text }), chat: { id: p.chat_id } };
+            const id = tgStore(p.chat_id, { text: p.text });
+            const marks = [
+                p.reply_parameters && `ответ на ${p.reply_parameters.message_id}`,
+                p.disable_notification && 'без звука',
+                p.reply_markup?.inline_keyboard && `кнопка «${p.reply_markup.inline_keyboard[0][0].text}»`,
+            ].filter(Boolean);
+            console.log(`[demo tg] → ${tgWhere(p.chat_id, p.message_thread_id)}, сообщение ${id}${marks.length ? ` (${marks.join(', ')})` : ''}:\n${p.text}\n`);
+            return { message_id: id, chat: { id: p.chat_id } };
+        }
+        case 'deleteMessage':
+        case 'deleteMessages': {
+            const ids = p.message_ids ?? [p.message_id];
+            for (const id of ids) tgMessages.delete(`${p.chat_id}:${id}`);
+            console.log(`[demo tg] удалены сообщения ${ids.join(', ')} в ${String(p.chat_id) === String(TG_GROUP) ? 'группе' : `чате ${p.chat_id}`}`);
+            return true;
+        }
+        case 'editMessageText': {
+            if (!tgMessages.has(`${p.chat_id}:${p.message_id}`)) throw Object.assign(new Error('Bad Request: message to edit not found'), { code: 400 });
+            tgMessages.set(`${p.chat_id}:${p.message_id}`, { text: p.text });
+            console.log(`[demo tg] сообщение ${p.message_id} изменено:\n${p.text}\n`);
+            return true;
         }
         case 'copyMessage': {
             const src = tgMessages.get(`${p.from_chat_id}:${p.message_id}`);
@@ -190,6 +209,12 @@ function tgMethod(method, p) {
 async function tgDemoIncoming(b) {
     const date = Math.floor(Date.now() / 1000);
     let message;
+    if (b.type === 'delete-topic') {
+        // Имитация удаления темы сотрудником: сообщения в неё больше не отправить
+        tgTopics.delete(Number(b.topic));
+        console.log(`[demo tg] тема #${b.topic} удалена`);
+        return { messageId: null };
+    }
     if (b.type === 'close' || b.type === 'reopen') {
         const topic = tgTopics.get(Number(b.topic));
         if (topic) topic.closed = b.type === 'close';
@@ -355,7 +380,8 @@ http.createServer((req, res) => {
     // Темы заглушки хранятся в памяти, а привязка клиентов к темам — в базе демо:
     // после перезапуска нумеруем новые темы дальше, чтобы номера не совпали со старыми
     const { db } = await import('../src/db.js');
-    tgNextTopic = Math.max(tgNextTopic, (db.prepare('SELECT MAX(topic_id) AS n FROM tg_clients').get().n ?? 0) + 1);
+    const emailTopic = JSON.parse(db.prepare("SELECT value FROM settings WHERE key = 'tgEmailTopic'").get()?.value ?? '{}').topicId ?? 0;
+    tgNextTopic = Math.max(tgNextTopic, (db.prepare('SELECT MAX(topic_id) AS n FROM tg_clients').get().n ?? 0) + 1, emailTopic + 1);
     console.log(`
 ==============================================================
   ДЕМО-РЕЖИМ: платежи и панель — заглушки, деньги не списываются

@@ -32,17 +32,33 @@ export const onBotReady = (fn) => readyListeners.add(fn);
 // Юзернейм бота, когда он запущен и группа поддержки указана
 export const supportBotUsername = () => (bot && groupId() ? bot.username : null);
 
-const groupId = () => config.telegram.supportChatId;
-const esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+export const groupId = () => config.telegram.supportChatId;
+export const esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+
+// Тема «Обращения» (оповещения об email-обращениях, src/tgnotify.js). Хранится вместе с ID группы:
+// если группу поддержки сменили, старая тема не используется.
+const EMAIL_TOPIC_KEY = 'tgEmailTopic';
+export function emailTopicId() {
+    const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(EMAIL_TOPIC_KEY);
+    const v = row ? JSON.parse(row.value) : null;
+    return v && String(v.chatId) === groupId() ? v.topicId : null;
+}
+export function setEmailTopicId(topicId) {
+    if (!topicId) return db.prepare('DELETE FROM settings WHERE key = ?').run(EMAIL_TOPIC_KEY);
+    db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(
+        EMAIL_TOPIC_KEY,
+        JSON.stringify({ chatId: groupId(), topicId }),
+    );
+}
 const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
 const fullName = (c) => [c.first_name, c.last_name].filter(Boolean).join(' ');
 
 // ---------- Ошибки Telegram ----------
 
-const errText = (err) => String(err?.message ?? '');
-const isTopicGone = (err) => err instanceof TelegramError && /thread not found|TOPIC_DELETED|TOPIC_ID_INVALID/i.test(errText(err));
-const isTopicClosed = (err) => err instanceof TelegramError && /TOPIC_CLOSED/i.test(errText(err));
-const isNotModified = (err) => err instanceof TelegramError && /not modified|TOPIC_NOT_MODIFIED/i.test(errText(err));
+export const errText = (err) => String(err?.message ?? '');
+export const isTopicGone = (err) => err instanceof TelegramError && /thread not found|TOPIC_DELETED|TOPIC_ID_INVALID/i.test(errText(err));
+export const isTopicClosed = (err) => err instanceof TelegramError && /TOPIC_CLOSED/i.test(errText(err));
+export const isNotModified = (err) => err instanceof TelegramError && /not modified|TOPIC_NOT_MODIFIED/i.test(errText(err));
 const isUncopyable = (err) => err instanceof TelegramError && /can't be copied|message to copy not found|MESSAGE_ID_INVALID/i.test(errText(err));
 // Ошибка, которая не пройдёт при повторе: клиент остановил бота, сообщение нельзя отправить и т.п.
 const isPermanent = (err) => err instanceof TelegramError && (err.code === 400 || err.code === 403);
@@ -312,6 +328,7 @@ async function forwardToTopic(initial, msg) {
 async function handleGroup(msg) {
     const threadId = msg.is_topic_message ? msg.message_thread_id : null;
     if (!threadId) return; // раздел «General» и сообщения вне тем
+    if (threadId === emailTopicId()) return; // тема «Обращения»: только оповещения, сообщения сотрудников не обрабатываем
     const client = db.prepare('SELECT * FROM tg_clients WHERE topic_id = ?').get(threadId);
 
     if (msg.forum_topic_closed || msg.forum_topic_reopened) {
@@ -528,6 +545,9 @@ async function checkGroup() {
     const member = await tg('getChatMember', { chat_id: groupId(), user_id: bot.id });
     if (member.status !== 'creator' && !(member.status === 'administrator' && member.can_manage_topics)) {
         console.warn('[telegram] бот должен быть администратором группы поддержки с правом «Управление темами»');
+    }
+    if (member.status === 'administrator' && !member.can_delete_messages) {
+        console.warn('[telegram] у бота нет права «Удаление сообщений»: при удалении аккаунта оповещения об обращениях не удалятся, а будут очищены от данных клиента');
     }
 }
 

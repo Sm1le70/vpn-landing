@@ -5,10 +5,9 @@ import { config } from '../config.js';
 import { db } from '../db.js';
 import { resend, resendEnabled } from '../resend.js';
 import { sendSupportReply, supportFrom } from '../mailer.js';
-import { THREAD_STATUSES, extractMessageIds, fillOutgoingMessageId, parseAddress, replySubject } from '../support.js';
+import { STATUS_TITLES, THREAD_STATUSES, extractMessageIds, fillOutgoingMessageId, parseAddress, replySubject } from '../support.js';
+import { notifyReply, notifyStatus } from '../tgnotify.js';
 import { AdminActionError, audit } from './service.js';
-
-export const STATUS_TITLES = { new: 'Новое', waiting: 'Ждёт ответа', answered: 'Отвечено', closed: 'Закрыто' };
 const REPLY_MAX = 20_000;
 const ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024;
 
@@ -207,6 +206,7 @@ export async function reply(admin, threadId, { text, close }) {
     // Настоящий Message-ID ответа: по нему привяжется следующее письмо клиента. Не получили сейчас — дозаберёт фоновая задача.
     if (sent.id) await fillOutgoingMessageId(msgRowId, sent.id).catch((err) => console.warn(`[support] Message-ID ответа: ${err.message}`));
 
+    notifyReply({ threadId: t.id, email: t.email, subject: t.subject, adminLogin: admin.login, text: body, statusTitle: STATUS_TITLES[status] });
     audit(admin, 'support.reply', {
         targetType: 'support_thread', targetId: t.id, targetLabel: t.email,
         details: { resendId: sent.id, subject, statusBefore: t.status, statusAfter: status, length: body.length },
@@ -219,6 +219,10 @@ export function setStatus(admin, threadId, { status }) {
     const t = loadThread(threadId);
     if (t.status === status) return { status };
     db.prepare("UPDATE support_threads SET status = ?, updated_at = datetime('now') WHERE id = ?").run(status, t.id);
+    notifyStatus({
+        threadId: t.id, email: t.email, subject: t.subject, adminLogin: admin.login,
+        beforeTitle: STATUS_TITLES[t.status] ?? t.status, afterTitle: STATUS_TITLES[status],
+    });
     audit(admin, 'support.status', {
         targetType: 'support_thread', targetId: t.id, targetLabel: t.email, details: { before: t.status, after: status },
     });

@@ -5,8 +5,10 @@ import { db, tx } from './db.js';
 import { getSettings } from './settings.js';
 import { resend, resendEnabled } from './resend.js';
 import { sendSupportNotice, supportFrom } from './mailer.js';
+import { notifyInbound } from './tgnotify.js';
 
 export const THREAD_STATUSES = ['new', 'waiting', 'answered', 'closed'];
+export const STATUS_TITLES = { new: 'Новое', waiting: 'Ждёт ответа', answered: 'Отвечено', closed: 'Закрыто' };
 
 // Лимиты сохраняемого тела письма (символы)
 const TEXT_MAX = 200_000;
@@ -146,6 +148,21 @@ async function processInboxItem(emailId) {
 
         const result = storeInbound(emailId, meta, full, from, header);
         db.prepare("UPDATE support_inbox SET status = 'done', last_error = NULL WHERE email_id = ?").run(emailId);
+        if (result) {
+            // Оповещение в теме «Обращения» группы поддержки Telegram (если включено в настройках)
+            const status = db.prepare('SELECT status FROM support_threads WHERE id = ?').get(result.threadId)?.status;
+            notifyInbound({
+                threadId: result.threadId,
+                kind: result.isNew ? 'new' : result.reopened ? 'reopen' : 'client',
+                email: from.email,
+                name: from.name,
+                subject: result.subject,
+                text: result.text,
+                attachments: result.attachments,
+                contentMissing: !full,
+                statusTitle: STATUS_TITLES[status] ?? status,
+            });
+        }
         if (result && (result.isNew || result.reopened) && config.support.notifyEmail) {
             sendSupportNotice(config.support.notifyEmail, { threadId: result.threadId, email: from.email, reopened: result.reopened })
                 .catch((err) => console.error('[support] уведомление не отправлено:', err.message));
@@ -220,6 +237,7 @@ function storeInbound(emailId, meta, full, from, header) {
                     subject, text, html, truncated, full ? 0 : 1, createdAt,
                 ).lastInsertRowid,
         );
+        let attachmentsSaved = 0;
         const insertAtt = db.prepare(
             `INSERT INTO support_attachments (message_id, resend_attachment_id, filename, content_type, size, content_disposition, content_id)
              VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -228,8 +246,9 @@ function storeInbound(emailId, meta, full, from, header) {
             if (!a?.id) continue;
             insertAtt.run(msgId, String(a.id), String(a.filename ?? 'file').slice(0, 255), a.content_type ?? null,
                 Number.isFinite(a.size) ? a.size : null, a.content_disposition ?? null, a.content_id ?? null);
+            attachmentsSaved += 1;
         }
-        return { threadId, isNew, reopened };
+        return { threadId, isNew, reopened, subject, text, attachments: attachmentsSaved };
     });
 }
 

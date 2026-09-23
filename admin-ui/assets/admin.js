@@ -1140,6 +1140,10 @@
                     <div class="form-row">${text('brandName', 'Название сервиса')}${text('docsDate', 'Дата редакции документов', 'Показывается в соглашении и политике')}</div>
                     <div class="form-row">${text('supportEmail', 'Email поддержки')}${text('supportTelegram', 'Telegram поддержки', 'Юзернейм без @, не группа')}</div>
                     ${text('verificationPhrase', 'Кодовое слово для Platega', 'Выводится в подвале сайта. После регистрации кассы очистите поле.')}
+                    <label class="check"><input type="checkbox" name="telegramEmailNotify" ${s.telegramEmailNotify ? 'checked' : ''}> Оповещения об обращениях в Telegram</label>
+                    <span class="muted small">${s.telegramReady
+                        ? 'Новые письма клиентов, ответы и смены статуса приходят в тему «Обращения» группы поддержки. В оповещениях есть email и начало письма.'
+                        : 'Бот поддержки не запущен или не указана группа (TELEGRAM_BOT_TOKEN, TELEGRAM_SUPPORT_CHAT_ID) — оповещения не отправляются.'}</span>
                 </div></div>
                 <div class="card"><h2>Подписка</h2><div class="form">
                     <div class="form-row">${numf('paidDeviceLimit', 'Лимит устройств (платная)', 0, 50, '0 — без ограничения. Применяется к новым оплатам и продлениям.')}</div>
@@ -1153,6 +1157,7 @@
             e.preventDefault();
             const data = Object.fromEntries(new FormData(f));
             data.trialEnabled = f.trialEnabled.checked;
+            data.telegramEmailNotify = f.telegramEmailNotify.checked;
             for (const k of ['paidDeviceLimit', 'trialDays', 'trialDeviceLimit']) data[k] = Number(data[k]);
             try {
                 await api('PUT', 'settings', data);

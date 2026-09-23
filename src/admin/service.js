@@ -5,6 +5,7 @@ import { remnawave } from '../remnawave.js';
 import { checkRefund, refundTransaction } from '../platega.js';
 import { sendAccountNotice } from '../mailer.js';
 import { onAccountUnlinked } from '../tgsupport.js';
+import { purgeThreads } from '../tgnotify.js';
 import { parseAddress } from '../support.js';
 import { getSettings, getPlan } from '../settings.js';
 import {
@@ -324,6 +325,7 @@ export function deleteAccount(admin, userId, { reason, confirmEmail }) {
         if (rw) await remnawave.deleteUser(rw.id);
         const anonymized = `deleted-${user.id}@deleted.invalid`;
         let supportThreadsDeleted = 0;
+        let telegramNotificationsPurged = 0;
         let telegramUnlinked = [];
         tx(() => {
             db.prepare('DELETE FROM sessions WHERE user_id = ?').run(user.id);
@@ -344,6 +346,8 @@ export function deleteAccount(admin, userId, { reason, confirmEmail }) {
             for (const id of threadIds) {
                 db.prepare("UPDATE audit_log SET target_label = ? WHERE target_type = 'support_thread' AND target_id = ?").run(maskEmail(user.email), id);
             }
+            // Оповещения об этих обращениях в теме «Обращения» Telegram удаляются фоновой задачей
+            telegramNotificationsPurged = purgeThreads(threadIds);
             supportThreadsDeleted = db.prepare('DELETE FROM support_threads WHERE user_id = ? OR email = ?').run(user.id, user.email).changes;
             // Отправитель в очереди хранится как в вебхуке — обычно "Имя <email>", поэтому сравниваем разобранный адрес
             const deleteInbox = db.prepare('DELETE FROM support_inbox WHERE email_id = ?');
@@ -365,7 +369,7 @@ export function deleteAccount(admin, userId, { reason, confirmEmail }) {
         onAccountUnlinked(telegramUnlinked).catch((err) => console.warn('[telegram] удаление аккаунта:', err.message));
         audit(admin, 'user.delete_account', {
             targetType: 'user', targetId: user.id, targetLabel: maskEmail(user.email), reason: r,
-            details: { removedPanelUser: rw ? { id: rw.id, username: rw.username } : null, ordersKept: db.prepare('SELECT COUNT(*) AS n FROM orders WHERE user_id = ?').get(user.id).n, supportThreadsDeleted, telegramUnlinked: telegramUnlinked.length },
+            details: { removedPanelUser: rw ? { id: rw.id, username: rw.username } : null, ordersKept: db.prepare('SELECT COUNT(*) AS n FROM orders WHERE user_id = ?').get(user.id).n, supportThreadsDeleted, telegramNotificationsPurged, telegramUnlinked: telegramUnlinked.length },
         });
         return { ok: true };
     });

@@ -248,6 +248,33 @@ db.exec(`
         received_at     TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS tg_updates_pending ON tg_updates(status, update_id);
+
+    -- Оповещения об email-обращениях в теме «Обращения»: очередь отправки.
+    -- thread_id без внешнего ключа: задача удаления оповещений переживает удаление обращения.
+    CREATE TABLE IF NOT EXISTS tg_outbox (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        thread_id       INTEGER NOT NULL,
+        -- 'event' | 'purge'
+        kind            TEXT NOT NULL,
+        payload         TEXT NOT NULL,
+        -- 'pending' | 'done' | 'failed'
+        status          TEXT NOT NULL DEFAULT 'pending',
+        attempts        INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at INTEGER NOT NULL DEFAULT 0,
+        last_error      TEXT,
+        created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS tg_outbox_pending ON tg_outbox(status, id);
+    CREATE INDEX IF NOT EXISTS tg_outbox_thread ON tg_outbox(thread_id);
+
+    -- Отправленные оповещения: чтобы удалить их из Telegram вместе с аккаунтом клиента
+    CREATE TABLE IF NOT EXISTS tg_notify_messages (
+        thread_id  INTEGER NOT NULL,
+        chat_id    TEXT NOT NULL,
+        message_id INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS tg_notify_messages_thread ON tg_notify_messages(thread_id);
 `);
 
 // Миграции существующих баз: добавляем недостающие колонки.
@@ -264,6 +291,8 @@ addColumn('orders', 'refunded_at', 'TEXT');
 addColumn('orders', 'refund_info', 'TEXT');
 // Срок, до которого продлевает подписку этот заказ: защита от двойного продления при повторе после таймаута
 addColumn('orders', 'target_expire_at', 'TEXT');
+// Первое оповещение об обращении в теме «Обращения»: остальные события приходят ответом на него
+addColumn('support_threads', 'tg_msg_id', 'INTEGER');
 // Сброс доступа из консоли: включить отключённого администратора после завершения сброса
 addColumn('admin_setup_tokens', 'enable_admin', 'INTEGER NOT NULL DEFAULT 0');
 db.exec('CREATE INDEX IF NOT EXISTS users_expire ON users(expire_at)');

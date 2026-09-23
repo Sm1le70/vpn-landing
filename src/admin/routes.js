@@ -3,7 +3,7 @@ import path from 'node:path';
 import express from 'express';
 import { config, ROOT_DIR } from '../config.js';
 import { db } from '../db.js';
-import { userTelegram } from '../tgsupport.js';
+import { supportBotUsername, userTelegram } from '../tgsupport.js';
 import { getSettings, saveSettings, listPlans, savePlans, getApps, saveApps, ValidationError } from '../settings.js';
 import {
     ADMIN_COOKIE,
@@ -208,7 +208,8 @@ export function adminRouter() {
         svc.audit(req.admin, 'apps.update', { details: { before, after } });
         return after;
     }));
-    api.get('/settings', adminOnly, wrap(() => getSettings()));
+    // telegramReady — бот запущен и группа поддержки указана (для подсказки у флажка оповещений)
+    api.get('/settings', adminOnly, wrap(() => ({ ...getSettings(), telegramReady: Boolean(supportBotUsername()) })));
     api.put('/settings', adminOnly, wrap((req) => {
         const { before, after } = saveSettings(req.body ?? {});
         const changed = Object.fromEntries(
