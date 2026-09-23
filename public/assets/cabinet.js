@@ -69,15 +69,31 @@
         busy(btn, true, 'Отправляем…');
         try {
             await api('POST', '/api/auth/request-code', { email: state.email });
-            $('code-email').textContent = state.email;
-            $('form-email').hidden = true;
-            $('form-code').hidden = false;
-            $('form-code').code.focus();
+            showCodeForm(true);
         } catch (err) {
             setError('login-error', err.message);
         } finally {
             busy(btn, false);
         }
+    });
+
+    function showCodeForm(sent) {
+        $('code-email').textContent = state.email;
+        $('code-email-own').textContent = state.email;
+        $('code-sent').hidden = !sent;
+        $('code-own').hidden = sent;
+        $('form-email').hidden = true;
+        $('form-code').hidden = false;
+        $('form-code').code.focus();
+    }
+
+    // Код уже есть (например, выдан командой login-code) — письмо не запрашиваем
+    $('btn-have-code').addEventListener('click', () => {
+        const form = $('form-email');
+        if (!form.reportValidity()) return;
+        state.email = form.email.value.trim();
+        setError('login-error');
+        showCodeForm(false);
     });
 
     $('form-code').addEventListener('submit', async (e) => {

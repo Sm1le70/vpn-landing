@@ -13,9 +13,11 @@
                     <input type="email" name="email" autocomplete="email" required placeholder="you@example.com">
                 </label>
                 <button class="btn btn--primary btn--block" type="submit">Получить код</button>
+                <button class="btn btn--link" type="button" id="btn-have-code">У меня уже есть код</button>
             </form>
             <form id="form-code" class="form" hidden>
-                <p class="muted">Код отправлен на <b id="code-email"></b>. Проверьте папку «Спам», если письма нет.</p>
+                <p class="muted" id="code-sent">Код отправлен на <b id="code-email"></b>. Проверьте папку «Спам», если письма нет.</p>
+                <p class="muted" id="code-own" hidden>Введите код для <b id="code-email-own"></b>.</p>
                 <label class="field">
                     <span>Код из письма</span>
                     <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required placeholder="000000">
