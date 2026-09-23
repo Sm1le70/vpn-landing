@@ -199,6 +199,55 @@ db.exec(`
         received_at     TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS support_inbox_pending ON support_inbox(status, next_attempt_at);
+
+    -- Поддержка в Telegram: клиент бота и его тема в группе поддержки
+    CREATE TABLE IF NOT EXISTS tg_clients (
+        tg_user_id      INTEGER PRIMARY KEY,
+        user_id         INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        first_name      TEXT,
+        last_name       TEXT,
+        username        TEXT,
+        topic_id        INTEGER,
+        topic_closed    INTEGER NOT NULL DEFAULT 0,
+        -- сообщения клиента не пересылаются в группу
+        banned          INTEGER NOT NULL DEFAULT 0,
+        created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+        last_message_at TEXT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS tg_clients_topic ON tg_clients(topic_id);
+    CREATE INDEX IF NOT EXISTS tg_clients_user ON tg_clients(user_id);
+
+    -- Одноразовые ссылки t.me/<бот>?start=<токен> из кабинета для привязки аккаунта
+    CREATE TABLE IF NOT EXISTS tg_link_tokens (
+        token_hash TEXT PRIMARY KEY,
+        user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        expires_at INTEGER NOT NULL
+    );
+
+    -- Соответствие сообщений в личке клиента и в теме — чтобы «Ответить» работал в обе стороны
+    CREATE TABLE IF NOT EXISTS tg_messages (
+        tg_user_id   INTEGER NOT NULL,
+        user_msg_id  INTEGER NOT NULL,
+        group_msg_id INTEGER NOT NULL,
+        created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS tg_messages_user ON tg_messages(tg_user_id, user_msg_id);
+    CREATE INDEX IF NOT EXISTS tg_messages_group ON tg_messages(group_msg_id);
+
+    -- Очередь входящих обновлений: update_id уникален, повторная доставка не создаёт дубль
+    CREATE TABLE IF NOT EXISTS tg_updates (
+        update_id       INTEGER PRIMARY KEY,
+        -- чат клиента или тема: порядок сообщений соблюдается внутри одного ключа
+        chat_key        TEXT NOT NULL,
+        payload         TEXT NOT NULL,
+        -- 'pending' | 'done' | 'failed'
+        status          TEXT NOT NULL DEFAULT 'pending',
+        attempts        INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at INTEGER NOT NULL DEFAULT 0,
+        last_error      TEXT,
+        received_at     TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS tg_updates_pending ON tg_updates(status, update_id);
 `);
 
 // Миграции существующих баз: добавляем недостающие колонки.

@@ -68,6 +68,20 @@ export const config = {
         // Пусто — уведомления о новых обращениях выключены
         notifyEmail: env('SUPPORT_NOTIFY_EMAIL').toLowerCase(),
     },
+
+    // Поддержка в Telegram: бот и закрытая группа с темами
+    telegram: {
+        botToken: env('TELEGRAM_BOT_TOKEN'),
+        // ID группы вида -100...; пусто — бот только сообщает ID группы по команде /chat_id
+        supportChatId: env('TELEGRAM_SUPPORT_CHAT_ID'),
+        // Ответ на первое сообщение обращения; пустая строка — не отвечать
+        autoReply: env(
+            'TELEGRAM_AUTOREPLY',
+            'Сообщение получено, ответим здесь же в ближайшее время. Если вопрос о подписке — укажите email, на который она оформлена.',
+        ),
+        // Только для демо и тестов: адрес имитации Bot API
+        apiUrl: env('TELEGRAM_API_URL', 'https://api.telegram.org').replace(/\/+$/, ''),
+    },
 };
 
 if (config.appSecret === 'dev-secret' || config.appSecret.startsWith('change-me')) {

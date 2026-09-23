@@ -34,6 +34,8 @@ import {
 import { renderPage } from './pages.js';
 import { verifyWebhook } from './resend.js';
 import { enqueueInbound, startSupportJobs } from './support.js';
+import { telegramEnabled, telegramWebhookSecret } from './telegram.js';
+import { createLinkUrl, enqueueUpdate, startTelegramSupport, supportBotUsername } from './tgsupport.js';
 
 const app = express();
 app.disable('x-powered-by');
@@ -97,6 +99,22 @@ app.post('/webhooks/resend-inbound', express.raw({ type: '*/*', limit: '256kb' }
         res.json({ ok: true });
     } catch (err) {
         console.error('[webhook resend-inbound]', err.message);
+        res.status(500).json({ error: 'temporary error' });
+    }
+});
+
+// Бот поддержки в Telegram. Секрет приходит в заголовке X-Telegram-Bot-Api-Secret-Token.
+app.post('/webhooks/telegram', express.json({ limit: '1mb' }), (req, res) => {
+    if (!telegramEnabled()) return res.status(404).json({ error: 'not found' });
+    const got = Buffer.from(String(req.headers['x-telegram-bot-api-secret-token'] ?? ''));
+    const expected = Buffer.from(telegramWebhookSecret());
+    if (got.length !== expected.length || !crypto.timingSafeEqual(got, expected)) return res.status(401).json({ error: 'unauthorized' });
+    try {
+        // Обновление ставится в очередь; повторная доставка того же update_id ничего не создаёт
+        enqueueUpdate(req.body);
+        res.json({ ok: true });
+    } catch (err) {
+        console.error('[webhook telegram]', err.message);
         res.status(500).json({ error: 'temporary error' });
     }
 });
@@ -247,7 +265,22 @@ app.get(
             subscription,
             subscriptionError,
             orders,
+            telegramSupport: Boolean(supportBotUsername()),
         });
+    }),
+);
+
+// Ссылка на бота поддержки с одноразовым токеном: по ней бот привязывает Telegram к аккаунту
+app.post(
+    '/api/me/telegram-link',
+    requireUser,
+    wrap(async (req, res) => {
+        if (!rateLimit(`tglink:${req.user.id}`, 10, 60 * 60 * 1000)) {
+            return res.status(429).json({ error: 'Слишком много запросов, попробуйте позже' });
+        }
+        const url = createLinkUrl(req.user.id);
+        if (!url) return res.status(404).json({ error: 'Поддержка в Telegram сейчас не подключена, напишите на почту' });
+        res.json({ url });
     }),
 );
 
@@ -346,6 +379,7 @@ app.listen(config.port, () => {
     console.log(`[server] ${getSettings().brandName} слушает :${config.port} (${config.siteUrl})`);
     startBackgroundJobs();
     startSupportJobs();
+    startTelegramSupport();
     if (config.admin.demoNo2fa) ensureDemoAdmin();
     ensureBootstrap();
     if (config.admin.path) console.log(`[server] админка: ${config.siteUrl}${config.admin.path}/`);

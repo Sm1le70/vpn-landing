@@ -3,6 +3,7 @@ import path from 'node:path';
 import express from 'express';
 import { config, ROOT_DIR } from '../config.js';
 import { db } from '../db.js';
+import { userTelegram } from '../tgsupport.js';
 import { getSettings, saveSettings, listPlans, savePlans, getApps, saveApps, ValidationError } from '../settings.js';
 import {
     ADMIN_COOKIE,
@@ -143,7 +144,11 @@ export function adminRouter() {
         res.send(svc.usersCsv({ q: req.query.q, filter: req.query.filter }));
     });
     api.post('/users/grant', wrap((req) => svc.grantAccess(req.admin, req.body ?? {})));
-    api.get('/users/:id', wrap(async (req) => ({ ...(await svc.userDetails(req.params.id)), supportThreads: support.userThreads(Number(req.params.id)) })));
+    api.get('/users/:id', wrap(async (req) => ({
+        ...(await svc.userDetails(req.params.id)),
+        supportThreads: support.userThreads(Number(req.params.id)),
+        telegram: userTelegram(Number(req.params.id)),
+    })));
     api.post('/users/:id/extend', wrap((req) => svc.extendUser(req.admin, req.params.id, req.body ?? {})));
     api.post('/users/:id/disable', wrap((req) => svc.setEnabled(req.admin, req.params.id, false, req.body ?? {})));
     api.post('/users/:id/enable', wrap((req) => svc.setEnabled(req.admin, req.params.id, true, req.body ?? {})));

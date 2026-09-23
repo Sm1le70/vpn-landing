@@ -27,6 +27,10 @@ Object.assign(process.env, {
     RESEND_API_KEY: 'demo',
     RESEND_API_URL: MOCK,
     RESEND_INBOUND_WEBHOOK_SECRET: DEMO_WEBHOOK_SECRET,
+    // Telegram — имитация Bot API: всё, что бот отправляет, выводится в консоль; сообщения клиента и сотрудников — npm run demo:tg
+    TELEGRAM_BOT_TOKEN: '1:demo',
+    TELEGRAM_SUPPORT_CHAT_ID: '-1001',
+    TELEGRAM_API_URL: MOCK,
     ADMIN_PATH: '/admin-demo',
     DEMO_ADMIN_NO_2FA: 'true', // в демо вход в админку без 2FA: admin / admin и support / support
 });
@@ -113,6 +117,106 @@ async function sendInboundWebhook(email) {
     console.log(`[demo] входящее письмо от ${email.from} → вебхук: ${res.status}`);
 }
 
+// ---- Telegram: темы группы поддержки и сообщения (для copyMessage) ----
+const TG_BOT = { id: 1, is_bot: true, first_name: 'Поддержка', username: 'demo_support_bot' };
+const TG_GROUP = -1001;
+const tgTopics = new Map();
+const tgMessages = new Map();
+let tgNextTopic = 2;
+let tgNextMessage = 1;
+let tgNextUpdate = 1;
+
+const tgWhere = (chatId, threadId) => (String(chatId) === String(TG_GROUP) ? `тема #${threadId} «${tgTopics.get(threadId)?.name ?? '?'}»` : `клиенту ${chatId}`);
+function tgStore(chatId, content) {
+    const id = tgNextMessage++;
+    tgMessages.set(`${chatId}:${id}`, content);
+    return id;
+}
+const tgPreview = (c) => (c.text ?? (c.photo ? `[фото] ${c.caption ?? ''}` : '[сообщение]'));
+
+function tgMethod(method, p) {
+    switch (method) {
+        case 'getMe': return TG_BOT;
+        case 'setWebhook': return true;
+        case 'getChat': return { id: TG_GROUP, type: 'supergroup', title: 'Поддержка (демо)', is_forum: true };
+        case 'getChatMember': return { status: 'administrator', user: TG_BOT, can_manage_topics: true };
+        case 'createForumTopic': {
+            const id = tgNextTopic++;
+            tgTopics.set(id, { name: p.name, closed: false });
+            console.log(`[demo tg] создана тема #${id} «${p.name}»`);
+            return { message_thread_id: id, name: p.name, icon_color: 7322096 };
+        }
+        case 'editForumTopic':
+            if (tgTopics.has(p.message_thread_id)) tgTopics.get(p.message_thread_id).name = p.name;
+            console.log(`[demo tg] тема #${p.message_thread_id} переименована: «${p.name}»`);
+            return true;
+        case 'reopenForumTopic':
+        case 'closeForumTopic': {
+            const topic = tgTopics.get(p.message_thread_id);
+            if (!topic) throw Object.assign(new Error('Bad Request: message thread not found'), { code: 400 });
+            const close = method === 'closeForumTopic';
+            if (topic.closed === close) throw Object.assign(new Error('Bad Request: TOPIC_NOT_MODIFIED'), { code: 400 });
+            topic.closed = close;
+            console.log(`[demo tg] тема #${p.message_thread_id} ${close ? 'закрыта' : 'открыта заново'}`);
+            return true;
+        }
+        case 'sendMessage': {
+            if (p.message_thread_id && !tgTopics.has(p.message_thread_id)) throw Object.assign(new Error('Bad Request: message thread not found'), { code: 400 });
+            console.log(`[demo tg] → ${tgWhere(p.chat_id, p.message_thread_id)}:\n${p.text}\n`);
+            return { message_id: tgStore(p.chat_id, { text: p.text }), chat: { id: p.chat_id } };
+        }
+        case 'copyMessage': {
+            const src = tgMessages.get(`${p.from_chat_id}:${p.message_id}`);
+            if (!src) throw Object.assign(new Error('Bad Request: message to copy not found'), { code: 400 });
+            if (p.message_thread_id) {
+                const topic = tgTopics.get(p.message_thread_id);
+                if (!topic) throw Object.assign(new Error('Bad Request: message thread not found'), { code: 400 });
+                if (topic.closed) throw Object.assign(new Error('Bad Request: TOPIC_CLOSED'), { code: 400 });
+            }
+            const reply = p.reply_parameters ? ` (ответ на ${p.reply_parameters.message_id})` : '';
+            const id = tgStore(p.chat_id, src);
+            console.log(`[demo tg] → ${tgWhere(p.chat_id, p.message_thread_id)}${reply}, сообщение ${id}:\n${tgPreview(src)}\n`);
+            return { message_id: id };
+        }
+        case 'setMessageReaction':
+            console.log(`[demo tg] реакция ${p.reaction?.[0]?.emoji} на сообщение ${p.message_id} в группе`);
+            return true;
+        case 'leaveChat': return true;
+        default: throw Object.assign(new Error(`demo: метод ${method} не поддерживается`), { code: 400 });
+    }
+}
+
+// Имитация входящего сообщения: от клиента в личку бота или от сотрудника в тему
+async function tgDemoIncoming(b) {
+    const date = Math.floor(Date.now() / 1000);
+    let message;
+    if (b.type === 'close' || b.type === 'reopen') {
+        const topic = tgTopics.get(Number(b.topic));
+        if (topic) topic.closed = b.type === 'close';
+        message = { message_id: tgNextMessage++, date, chat: { id: TG_GROUP, type: 'supergroup', is_forum: true }, from: { id: 500, is_bot: false, first_name: 'Сотрудник' },
+            message_thread_id: Number(b.topic), is_topic_message: true, [b.type === 'close' ? 'forum_topic_closed' : 'forum_topic_reopened']: {} };
+    } else if (b.type === 'staff') {
+        const content = { text: String(b.text ?? '') };
+        message = { message_id: tgStore(TG_GROUP, content), date, chat: { id: TG_GROUP, type: 'supergroup', is_forum: true }, from: { id: 500, is_bot: false, first_name: 'Сотрудник' },
+            message_thread_id: Number(b.topic), is_topic_message: true, ...content };
+        if (b.replyTo) message.reply_to_message = { message_id: Number(b.replyTo), date, chat: message.chat };
+    } else {
+        const from = { id: Number(b.user) || 111, is_bot: false, first_name: b.name || 'Иван', ...(b.username ? { username: b.username } : {}), language_code: 'ru' };
+        const content = { text: String(b.text ?? '') };
+        message = { message_id: tgStore(from.id, content), date, chat: { id: from.id, type: 'private', first_name: from.first_name }, from, ...content };
+        if (b.replyTo) message.reply_to_message = { message_id: Number(b.replyTo), date, chat: message.chat };
+    }
+    const { telegramWebhookSecret } = await import('../src/telegram.js');
+    const update = { update_id: tgNextUpdate++ + Math.floor(Date.now() / 1000) * 1000, message };
+    const res = await fetch(`${APP}/webhooks/telegram`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Telegram-Bot-Api-Secret-Token': telegramWebhookSecret() },
+        body: JSON.stringify(update),
+    });
+    console.log(`[demo tg] входящее сообщение ${message.message_id} → вебхук: ${res.status}`);
+    return { messageId: message.message_id };
+}
+
 http.createServer((req, res) => {
     let raw = '';
     req.on('data', (d) => (raw += d));
@@ -187,6 +291,16 @@ http.createServer((req, res) => {
             return json(res, 200, { id: email.id });
         }
 
+        // ---- Telegram ----
+        if ((m = path.match(/^\/bot[^/]+\/(\w+)$/))) {
+            try {
+                return json(res, 200, { ok: true, result: tgMethod(m[1], body) });
+            } catch (err) {
+                return json(res, err.code ?? 400, { ok: false, error_code: err.code ?? 400, description: err.message });
+            }
+        }
+        if (path === '/demo/tg' && req.method === 'POST') return json(res, 200, await tgDemoIncoming(body));
+
         // ---- Remnawave ----
         if (path === '/api/users' && req.method === 'POST') {
             const id = nextUserId++;
@@ -245,6 +359,7 @@ http.createServer((req, res) => {
   Код входа в кабинет появится здесь, в консоли ("Код входа: ...")
   Админка:  ${APP}/admin-demo/  (admin / admin, support / support)
   Письмо в поддержку: кнопка в разделе «Обращения» или npm run demo:mail
+  Telegram: npm run demo:tg -- --text "Вопрос" (ответы бота — здесь, в консоли)
   База демо: data/demo.db (удалите файл, чтобы начать заново)
 ==============================================================
 `);

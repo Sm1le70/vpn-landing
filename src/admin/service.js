@@ -4,6 +4,7 @@ import { db, tx } from '../db.js';
 import { remnawave } from '../remnawave.js';
 import { checkRefund, refundTransaction } from '../platega.js';
 import { sendAccountNotice } from '../mailer.js';
+import { onAccountUnlinked } from '../tgsupport.js';
 import { getSettings, getPlan } from '../settings.js';
 import {
     addDays,
@@ -320,6 +321,7 @@ export function deleteAccount(admin, userId, { reason, confirmEmail }) {
         if (rw) await remnawave.deleteUser(rw.id);
         const anonymized = `deleted-${user.id}@deleted.invalid`;
         let supportThreadsDeleted = 0;
+        let telegramUnlinked = [];
         tx(() => {
             db.prepare('DELETE FROM sessions WHERE user_id = ?').run(user.id);
             db.prepare('DELETE FROM login_codes WHERE email = ?').run(user.email);
@@ -337,10 +339,16 @@ export function deleteAccount(admin, userId, { reason, confirmEmail }) {
             }
             supportThreadsDeleted = db.prepare('DELETE FROM support_threads WHERE user_id = ? OR email = ?').run(user.id, user.email).changes;
             db.prepare("DELETE FROM support_inbox WHERE json_extract(payload, '$.from') = ?").run(user.email);
+            // Telegram: снимаем привязку, тема в группе поддержки остаётся
+            telegramUnlinked = db.prepare('SELECT tg_user_id FROM tg_clients WHERE user_id = ?').all(user.id).map((c) => c.tg_user_id);
+            db.prepare('UPDATE tg_clients SET user_id = NULL WHERE user_id = ?').run(user.id);
+            db.prepare('DELETE FROM tg_link_tokens WHERE user_id = ?').run(user.id);
         });
+        // Убираем email из названий тем; ошибки Telegram не мешают удалению
+        onAccountUnlinked(telegramUnlinked).catch((err) => console.warn('[telegram] удаление аккаунта:', err.message));
         audit(admin, 'user.delete_account', {
             targetType: 'user', targetId: user.id, targetLabel: maskEmail(user.email), reason: r,
-            details: { removedPanelUser: rw ? { id: rw.id, username: rw.username } : null, ordersKept: db.prepare('SELECT COUNT(*) AS n FROM orders WHERE user_id = ?').get(user.id).n, supportThreadsDeleted },
+            details: { removedPanelUser: rw ? { id: rw.id, username: rw.username } : null, ordersKept: db.prepare('SELECT COUNT(*) AS n FROM orders WHERE user_id = ?').get(user.id).n, supportThreadsDeleted, telegramUnlinked: telegramUnlinked.length },
         });
         return { ok: true };
     });

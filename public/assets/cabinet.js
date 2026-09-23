@@ -101,6 +101,26 @@
         setError('login-error');
     });
 
+    // Поддержка в Telegram: ссылка с одноразовым токеном привязывает Telegram к аккаунту
+    $('btn-tg-support').addEventListener('click', async (e) => {
+        const btn = e.currentTarget;
+        // Окно открываем сразу, иначе после запроса браузер не даст открыть всплывающее окно
+        const win = window.open('', '_blank');
+        if (win) win.opener = null;
+        setError('tg-error');
+        busy(btn, true, 'Открываем…');
+        try {
+            const { url } = await api('POST', '/api/me/telegram-link');
+            if (win) win.location.href = url;
+            else location.href = url;
+        } catch (err) {
+            if (win) win.close();
+            setError('tg-error', err.message);
+        } finally {
+            busy(btn, false);
+        }
+    });
+
     $('btn-logout').addEventListener('click', async () => {
         await api('POST', '/api/auth/logout').catch(() => {});
         location.href = '/';
@@ -350,6 +370,7 @@
             return;
         }
         $('user-email').textContent = state.me.email;
+        $('tg-support').hidden = !state.me.telegramSupport;
         renderSubscription();
         renderTrial();
         renderPlans();

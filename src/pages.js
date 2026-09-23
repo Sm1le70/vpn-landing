@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { config, ROOT_DIR } from './config.js';
 import { getSettings, listPlans, onSettingsChange } from './settings.js';
+import { onBotReady, supportBotUsername } from './tgsupport.js';
 
 const VIEWS_DIR = path.join(ROOT_DIR, 'views');
 
@@ -50,7 +51,8 @@ function plansHtml(st) {
 function vars() {
     const st = getSettings();
     const plans = listPlans();
-    const tg = st.supportTelegram;
+    // Если бот поддержки запущен, ссылки Telegram ведут на него, иначе — на юзернейм из настроек
+    const tg = supportBotUsername() || st.supportTelegram;
     return {
         brand: esc(st.brandName),
         year: String(new Date().getFullYear()),
@@ -87,6 +89,7 @@ function fill(template, values) {
 
 const cache = new Map();
 onSettingsChange(() => cache.clear());
+onBotReady(() => cache.clear());
 
 export function renderPage(name) {
     if (cache.has(name)) return cache.get(name);

@@ -594,6 +594,7 @@
                     <dl class="kv" style="margin-top:16px">
                         <dt>Регистрация</dt><dd>${fmtDateTime(u.createdAt)}</dd>
                         <dt>Пробный период</dt><dd>${u.trialUsedAt ? `использован ${fmtDate(u.trialUsedAt)}` : 'не использован'}</dd>
+                        ${(d.telegram || []).length ? `<dt>Telegram</dt><dd>${d.telegram.map((t) => `${t.username ? `<a href="https://t.me/${esc(t.username)}" target="_blank" rel="noopener">@${esc(t.username)}</a>` : esc(t.name || '')} <span class="muted mono">${esc(t.tgUserId)}</span>`).join('<br>')}</dd>` : ''}
                     </dl>
                 </div>
             </div>

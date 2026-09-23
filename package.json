@@ -13,6 +13,7 @@
     "dev": "node --watch src/server.js",
     "demo": "node scripts/demo.js",
     "demo:mail": "node scripts/demo-mail.js",
+    "demo:tg": "node scripts/demo-tg.js",
     "check-wording": "node scripts/check-wording.js",
     "admin:create": "node scripts/admin.js create",
     "admin:reset": "node scripts/admin.js reset",
