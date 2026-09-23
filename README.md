@@ -211,7 +211,7 @@ docker compose exec vpn-landing npm run admin:create -- --login olga --role supp
 | Сводка, CSV, тарифы, приложения, настройки, сотрудники | — | ✓ |
 | Журнал | только свои действия | все |
 
-Каждое действие с клиентом требует причину и пишется в журнал (кто, когда, что было до и после). Для большинства действий есть галочка «Уведомить клиента по email».
+Каждое действие с клиентом (кроме повторной отправки ссылки на почту) требует причину и пишется в журнал (кто, когда, что было до и после). Для большинства действий есть галочка «Уведомить клиента по email».
 
 ### Выдача подписки вручную
 Подписку можно назначить, не дожидаясь оплаты:
@@ -313,6 +313,7 @@ SUPPORT_FROM=Поддержка <support@one.pro-stor.org>
 MAIL_FROM=MyVPN <no-reply@one.pro-stor.org>
 # SUPPORT_NOTIFY_EMAIL=you@example.com   # короткое уведомление о новых обращениях
 ```
+Письма с адреса `SUPPORT_NOTIFY_EMAIL` считаются нашими и обращений не создают (защита от зацикливания уведомлений). Поэтому проверяйте приём (шаг 6) с другого адреса.
 ```bash
 docker compose up -d --build
 ```
@@ -383,9 +384,11 @@ src/telegram.js       клиент Telegram Bot API
 src/tgsupport.js      поддержка в Telegram: темы клиентов, очередь обновлений, привязка аккаунта
 src/pages.js          серверный рендер views/*.html
 src/settings.js       тарифы, приложения, настройки (в БД)
+src/wording.js        список недопустимых для банка формулировок
 src/admin/            админка: авторизация, API, операции
 admin-ui/             интерфейс админки
 scripts/admin.js      CLI: admin:create / admin:reset / admin:list
+scripts/check-wording.js  проверка текстов на недопустимые формулировки (npm run check-wording)
 scripts/demo.js       демо-режим с заглушками Platega, Remnawave, Resend и Telegram
 scripts/demo-mail.js  имитация входящего письма в демо (npm run demo:mail)
 scripts/demo-tg.js    имитация сообщений боту и в группу в демо (npm run demo:tg)

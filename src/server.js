@@ -56,9 +56,9 @@ app.post('/webhooks/remnawave', express.raw({ type: '*/*', limit: '1mb' }), asyn
     const secret = config.remnawave.webhookSecret;
     if (!secret) return res.status(503).json({ error: 'webhook secret not configured' });
 
-    const signature = String(req.headers['x-remnawave-signature'] ?? '');
-    const expected = crypto.createHmac('sha256', secret).update(req.body).digest('hex');
-    if (signature.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+    const signature = Buffer.from(String(req.headers['x-remnawave-signature'] ?? ''));
+    const expected = Buffer.from(crypto.createHmac('sha256', secret).update(req.body).digest('hex'));
+    if (signature.length !== expected.length || !crypto.timingSafeEqual(signature, expected)) {
         return res.status(401).json({ error: 'bad signature' });
     }
 

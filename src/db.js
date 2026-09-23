@@ -43,7 +43,7 @@ db.exec(`
         plan_id         TEXT NOT NULL,
         days            INTEGER NOT NULL,
         amount          REAL NOT NULL,
-        -- 'pending' | 'paid' | 'applied' | 'canceled' | 'chargeback'
+        -- 'pending' | 'paid' | 'applied' | 'canceled' | 'chargeback' | 'refund_pending' | 'refunded'
         status          TEXT NOT NULL DEFAULT 'pending',
         platega_tx_id   TEXT UNIQUE,
         payment_url     TEXT,

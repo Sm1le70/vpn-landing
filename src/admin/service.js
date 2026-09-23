@@ -418,9 +418,24 @@ export async function refundOrder(admin, orderId, { subscriptionAction, reason, 
     const check = await checkRefund(order.platega_tx_id);
     if (!check.supported) throw new AdminActionError(`Platega: возврат невозможен${check.blockReason ? ` (${check.blockReason})` : ''}`);
 
-    const result = await refundTransaction(order.platega_tx_id);
+    // Занимаем заказ до запроса в Platega: повторный клик или второй админ не отправят второй возврат
+    const claimed = db
+        .prepare("UPDATE orders SET status = 'refund_pending' WHERE id = ? AND status = ?")
+        .run(order.id, order.status).changes;
+    if (!claimed) throw new AdminActionError('Статус заказа уже изменился — обновите страницу', 409);
+    let result;
+    try {
+        result = await refundTransaction(order.platega_tx_id);
+    } catch (err) {
+        // Неизвестно, дошёл ли запрос: оставляем «Возврат в обработке», чтобы не отправить возврат повторно
+        db.prepare('UPDATE orders SET refund_info = ? WHERE id = ?').run(JSON.stringify({ error: err.message, subscriptionAction }), order.id);
+        throw new AdminActionError(`Ответ Platega не получен: ${err.message}. Заказ помечен «Возврат в обработке» — проверьте статус в кабинете Platega`, 502);
+    }
     const status = result.accepted ? 'refunded' : result.manualControlRequired ? 'refund_pending' : null;
-    if (!status) throw new AdminActionError(`Platega отклонила возврат: ${result.message || 'без пояснений'}`);
+    if (!status) {
+        db.prepare('UPDATE orders SET status = ? WHERE id = ?').run(order.status, order.id);
+        throw new AdminActionError(`Platega отклонила возврат: ${result.message || 'без пояснений'}`);
+    }
     db.prepare("UPDATE orders SET status = ?, refunded_at = datetime('now'), refund_info = ? WHERE id = ?").run(
         status,
         JSON.stringify({ accepted: result.accepted, manual: result.manualControlRequired, message: result.message, subscriptionAction }),
@@ -643,7 +658,9 @@ export function listAudit({ admin, adminLogin, action, page = 1, pageSize = 50 }
 
 function toCsv(header, rows) {
     const cell = (v) => {
-        const s = v == null ? '' : String(v);
+        let s = v == null ? '' : String(v);
+        // Значения вида =…, +…, -…, @… Excel выполняет как формулы
+        if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
         return /[";\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
     // Разделитель «;» и BOM — чтобы Excel с русской локалью открыл файл без мастера импорта.

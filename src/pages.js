@@ -26,18 +26,26 @@ function devicesText(n) {
     return `До ${n} ${plural(n, DEVICE_WORDS)} одновременно`;
 }
 
+const daysText = (n) => `${n} ${plural(n, ['день', 'дня', 'дней'])}`;
+
+// Подпись под ценой: цена в месяц — для тарифов от двух месяцев, иначе срок оплаты
+function planSub(days, price) {
+    if (days >= 60) return `${rub(Math.round(price / Math.round(days / 30)))} в месяц`;
+    if (days >= 28 && days <= 31) return 'Оплата за 1 месяц';
+    return `Оплата за ${daysText(days)}`;
+}
+
 function plansHtml(st) {
     return listPlans()
         .map((p) => {
-            const months = Math.max(1, Math.round(p.days / 30));
-            const perMonth = months > 1 ? `<div class="plan-sub">${rub(Math.round(p.price / months))} в месяц</div>` : '<div class="plan-sub">Оплата за 1 месяц</div>';
+            const perMonth = `<div class="plan-sub">${planSub(p.days, p.price)}</div>`;
             return `<article class="plan${p.badge ? ' plan--accent' : ''}">
     ${p.badge ? `<div class="plan-badge">${esc(p.badge)}</div>` : ''}
     <h3 class="plan-title">${esc(p.title)}</h3>
     <div class="plan-price">${rub(p.price)}</div>
     ${perMonth}
     <ul class="plan-list">
-        <li>Доступ на ${p.days} дней</li>
+        <li>Доступ на ${daysText(p.days)}</li>
         <li>Безлимитный трафик</li>
         <li>${devicesText(st.paidDeviceLimit)}</li>
         <li>Разовая оплата, без автосписаний</li>
@@ -67,7 +75,7 @@ function vars() {
             ? `на <a href="mailto:${esc(st.supportEmail)}">${esc(st.supportEmail)}</a> или в Telegram <a href="https://t.me/${esc(tg)}" target="_blank" rel="noopener">@${esc(tg)}</a>`
             : `на <a href="mailto:${esc(st.supportEmail)}">${esc(st.supportEmail)}</a>`,
         docsDate: esc(st.docsDate),
-        trialDaysText: `${st.trialDays} ${plural(st.trialDays, ['день', 'дня', 'дней'])}`,
+        trialDaysText: daysText(st.trialDays),
         trialDevicesText: `${st.trialDeviceLimit} ${plural(st.trialDeviceLimit, DEVICE_WORDS)}`,
         devicesText: esc(devicesText(st.paidDeviceLimit)),
         paidDeviceLimit: String(st.paidDeviceLimit || 'неограниченное количество'),
@@ -88,10 +96,17 @@ function fill(template, values) {
 }
 
 const cache = new Map();
+let cacheYear = new Date().getFullYear();
 onSettingsChange(() => cache.clear());
 onBotReady(() => cache.clear());
 
 export function renderPage(name) {
+    // В подвале выводится год — после Нового года страницы собираются заново
+    const year = new Date().getFullYear();
+    if (year !== cacheYear) {
+        cache.clear();
+        cacheYear = year;
+    }
     if (cache.has(name)) return cache.get(name);
     const source = read(`${name}.html`);
     // Первая строка страницы: <!-- title: ... | description: ... -->

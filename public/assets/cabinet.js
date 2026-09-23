@@ -140,6 +140,8 @@
         applied: 'Оплачен',
         canceled: 'Не оплачен',
         chargeback: 'Возврат',
+        refunded: 'Возврат',
+        refund_pending: 'Возврат в обработке',
     };
 
     function renderSubscription() {
@@ -262,12 +264,14 @@
         $('buy-title').textContent = state.me.subscription ? 'Продлить подписку' : 'Оформить подписку';
         $('plan-picker').innerHTML = plans
             .map((p) => {
-                const months = Math.max(1, Math.round(p.days / 30));
+                const sub = p.days >= 60
+                    ? `${rub(Math.round(p.price / Math.round(p.days / 30)))} / мес`
+                    : `${p.days} ${plural(p.days, ['день', 'дня', 'дней'])}`;
                 return `<label class="pp${p.id === state.selectedPlan ? ' pp--active' : ''}">
                     <input type="radio" name="plan" value="${esc(p.id)}" ${p.id === state.selectedPlan ? 'checked' : ''}>
                     <span class="pp-title">${esc(p.title)}${p.badge ? ` <em>${esc(p.badge)}</em>` : ''}</span>
                     <span class="pp-price">${rub(p.price)}</span>
-                    <span class="pp-sub">${months > 1 ? `${rub(Math.round(p.price / months))} / мес` : `${p.days} дней`}</span>
+                    <span class="pp-sub">${sub}</span>
                 </label>`;
             })
             .join('');

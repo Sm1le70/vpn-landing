@@ -352,6 +352,10 @@ http.createServer((req, res) => {
     });
 }).listen(MOCK_PORT, async () => {
     await import('../src/server.js');
+    // Темы заглушки хранятся в памяти, а привязка клиентов к темам — в базе демо:
+    // после перезапуска нумеруем новые темы дальше, чтобы номера не совпали со старыми
+    const { db } = await import('../src/db.js');
+    tgNextTopic = Math.max(tgNextTopic, (db.prepare('SELECT MAX(topic_id) AS n FROM tg_clients').get().n ?? 0) + 1);
     console.log(`
 ==============================================================
   ДЕМО-РЕЖИМ: платежи и панель — заглушки, деньги не списываются
