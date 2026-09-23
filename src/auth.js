@@ -8,6 +8,8 @@ import { sendLoginCode } from './mailer.js';
 const CODE_TTL_MS = 10 * 60 * 1000;
 const CODE_RESEND_MS = 60 * 1000;
 const CODE_MAX_ATTEMPTS = 5;
+// Постоянный код отключается после стольких неверных попыток — защита от подбора
+const STATIC_CODE_MAX_ATTEMPTS = 20;
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export const SESSION_COOKIE = 'sid';
 
@@ -39,23 +41,49 @@ export function issueLoginCode(email, ttlMs = CODE_TTL_MS) {
     return code;
 }
 
-export function verifyLoginCode(email, code) {
-    const row = db.prepare('SELECT * FROM login_codes WHERE email = ?').get(email);
-    if (!row || row.expires_at < Date.now()) throw new AuthError('Код истёк, запросите новый');
-    if (row.attempts >= CODE_MAX_ATTEMPTS) throw new AuthError('Слишком много попыток, запросите новый код');
+const codeMatches = (hash, email, code) =>
+    crypto.timingSafeEqual(Buffer.from(hash), Buffer.from(hmac(`${email}:${String(code ?? '').trim()}`)));
 
-    const expected = Buffer.from(row.code_hash);
-    const actual = Buffer.from(hmac(`${email}:${String(code ?? '').trim()}`));
-    if (!crypto.timingSafeEqual(expected, actual)) {
-        db.prepare('UPDATE login_codes SET attempts = attempts + 1 WHERE email = ?').run(email);
-        throw new AuthError('Неверный код');
-    }
-    db.prepare('DELETE FROM login_codes WHERE email = ?').run(email);
+// Постоянный код для тестового аккаунта: не истекает и не удаляется после входа (login-code --permanent).
+export function issueStaticLoginCode(email) {
+    const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
+    db.prepare(
+        `INSERT INTO static_login_codes (email, code_hash) VALUES (?, ?)
+         ON CONFLICT(email) DO UPDATE SET code_hash = excluded.code_hash, attempts = 0, created_at = datetime('now')`,
+    ).run(email, hmac(`${email}:${code}`));
+    return code;
+}
 
+export const revokeStaticLoginCode = (email) => db.prepare('DELETE FROM static_login_codes WHERE email = ?').run(email).changes > 0;
+
+export const listStaticLoginCodes = () => db.prepare('SELECT email, attempts, created_at FROM static_login_codes ORDER BY email').all();
+
+function createSession(email) {
     const user = findOrCreateUser(email);
     const token = crypto.randomBytes(32).toString('base64url');
     db.prepare('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)').run(hmac(token), user.id, Date.now() + SESSION_TTL_MS);
     return { user, token };
+}
+
+export function verifyLoginCode(email, code) {
+    const fixed = db.prepare('SELECT * FROM static_login_codes WHERE email = ?').get(email);
+    if (fixed && fixed.attempts < STATIC_CODE_MAX_ATTEMPTS) {
+        if (codeMatches(fixed.code_hash, email, code)) return createSession(email);
+        db.prepare('UPDATE static_login_codes SET attempts = attempts + 1 WHERE email = ?').run(email);
+        // Кода из письма для этого email нет — не пишем «код истёк», код просто неверный
+        if (!db.prepare('SELECT 1 FROM login_codes WHERE email = ?').get(email)) throw new AuthError('Неверный код');
+    }
+
+    const row = db.prepare('SELECT * FROM login_codes WHERE email = ?').get(email);
+    if (!row || row.expires_at < Date.now()) throw new AuthError('Код истёк, запросите новый');
+    if (row.attempts >= CODE_MAX_ATTEMPTS) throw new AuthError('Слишком много попыток, запросите новый код');
+
+    if (!codeMatches(row.code_hash, email, code)) {
+        db.prepare('UPDATE login_codes SET attempts = attempts + 1 WHERE email = ?').run(email);
+        throw new AuthError('Неверный код');
+    }
+    db.prepare('DELETE FROM login_codes WHERE email = ?').run(email);
+    return createSession(email);
 }
 
 export function destroySession(token) {
