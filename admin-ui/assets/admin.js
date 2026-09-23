@@ -5,6 +5,8 @@
     const app = document.getElementById('app');
     const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
     const rub = (n) => `${Number(n || 0).toLocaleString('ru-RU', { maximumFractionDigits: 2 })} ₽`;
+    // Как replySubject на сервере: «Re:» не добавляется повторно
+    const replySubject = (s) => (/^re\s*:/i.test(String(s).trim()) ? String(s).trim() : `Re: ${String(s).trim()}`);
     const toDate = (s) => (s ? new Date(/\d{4}-\d\d-\d\d \d/.test(s) ? s.replace(' ', 'T') + 'Z' : s) : null);
     const fmtDate = (s) => (s ? toDate(s).toLocaleDateString('ru-RU') : '—');
     const fmtDateTime = (s) => (s ? toDate(s).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }) : '—');
@@ -787,9 +789,11 @@
             title: `Возврат ${rub(p.amount)}`,
             subtitle: `С баланса Platega будет списано ${p.totalDeductUsdt} USDT${p.penaltyUsdt ? ` (в т.ч. штраф ${p.penaltyUsdt} USDT)` : ''}.`,
             body: `<div class="radio-list">
-                    <label><input type="radio" name="action" value="remove_days" checked><span><b>Снять дни заказа</b><br><span class="muted small">Срок подписки уменьшится на ${p.days} дн.</span></span></label>
+                    ${p.daysApplied
+                        ? `<label><input type="radio" name="action" value="remove_days" checked><span><b>Снять дни заказа</b><br><span class="muted small">Срок подписки уменьшится на ${p.days} дн.</span></span></label>`
+                        : '<p class="muted small">Дни по этому заказу ещё не начислены: после возврата заказ не будет выдан, срок подписки не изменится.</p>'}
                     <label><input type="radio" name="action" value="disable"><span><b>Отключить подписку</b><br><span class="muted small">Доступ прекратится сразу, оплата в кабинете закроется.</span></span></label>
-                    <label><input type="radio" name="action" value="keep"><span><b>Не трогать доступ</b><br><span class="muted small">Подписка останется как есть.</span></span></label>
+                    <label><input type="radio" name="action" value="keep" ${p.daysApplied ? '' : 'checked'}><span><b>Не трогать доступ</b><br><span class="muted small">Подписка останется как есть.</span></span></label>
                 </div>
                 ${reasonField()}${notifyField(true)}`,
             submitText: 'Оформить возврат',
@@ -946,7 +950,7 @@
             <div class="card reply-box">
                 <h2>Ответить</h2>
                 <form class="form" id="reply">
-                    <p class="small muted" style="margin:0">Письмо уйдёт на ${esc(t.email)} с темой «Re: ${esc(t.subject || `Обращение №${t.id}`)}». Предыдущее сообщение клиента будет процитировано внизу.</p>
+                    <p class="small muted" style="margin:0">Письмо уйдёт на ${esc(t.email)} с темой «${esc(replySubject(t.subject || `Обращение №${t.id}`))}». Предыдущее сообщение клиента будет процитировано внизу.</p>
                     <textarea name="text" required maxlength="20000" placeholder="Текст ответа"></textarea>
                     <div class="actions" style="justify-content:space-between;align-items:center">
                         <label class="check"><input type="checkbox" name="close"> Закрыть обращение после ответа</label>

@@ -54,8 +54,10 @@ npm run demo
 ```bash
 sudo apt update && sudo apt install -y git curl
 curl -fsSL https://get.docker.com | sudo sh
-docker compose version    # проверка
+sudo usermod -aG docker $USER    # чтобы запускать docker без sudo
 ```
+
+После `usermod` выйдите из SSH-сессии и зайдите снова, затем проверьте: `docker compose version`. Если работаете под `root`, `usermod` не нужен.
 
 ### 2. Скачать проект
 
@@ -131,14 +133,18 @@ Caddy сам получит сертификат Let's Encrypt (порты 80 и
 ### 6. Проверить
 
 - `https://example.com` — лендинг, тарифы, `/terms`, `/privacy`, `/contacts`.
-- `https://example.com/<ADMIN_PATH>/` — админка: создайте первого администратора по ссылке из логов (шаг 4).
+- `https://example.com/<ADMIN_PATH>/` — админка: создайте первого администратора по ссылке из логов (шаг 4). Ссылка действует 1 час; если истекла, выполните `docker compose restart` и возьмите новую из `docker compose logs vpn-landing`.
 - В кабинете Platega укажите callback `https://example.com/webhooks/platega`, в `.env` панели — вебхук `https://example.com/webhooks/remnawave` (подробности ниже, в разделе «Настройка»).
 - Сделайте тестовую оплату минимального тарифа.
+- Настройте ежедневную резервную копию (раздел [Резервная копия](#резервная-копия)).
 
 ### Обновление
 
+Перед обновлением сделайте резервную копию: новые версии могут добавлять колонки в базу, и откатить это можно только восстановлением из копии.
+
 ```bash
 cd /opt/vpn-landing
+sudo scripts/backup.sh
 git pull
 docker compose up -d --build
 docker compose logs -f --tail=50 vpn-landing    # убедиться, что запустилось (Ctrl+C — выйти из логов)
@@ -148,22 +154,44 @@ docker compose logs -f --tail=50 vpn-landing    # убедиться, что з�
 
 ### Резервная копия
 
-Всё состояние — это `data/app.db` (пользователи, заказы, админы, настройки) и `.env`:
+Всё состояние — это `data/app.db` (пользователи, заказы, админы, настройки) и `.env`. Копию делает скрипт `scripts/backup.sh`. Его нужно запускать через `sudo`: файлы в `data/` принадлежат пользователю контейнера.
+
+**1. Первая копия вручную.** Проверьте, что скрипт работает:
 
 ```bash
 cd /opt/vpn-landing
-mkdir -p backups
-docker compose exec vpn-landing node -e "new (require('node:sqlite').DatabaseSync)('/app/data/app.db').exec(\"VACUUM INTO '/app/data/backup.db'\")"
-mv data/backup.db backups/app-$(date +%F).db && cp .env backups/env-$(date +%F)
+sudo scripts/backup.sh
+sudo ls -l backups/
 ```
 
-Ежедневный бэкап по cron (хранятся 14 последних копий):
+Скрипт снимает согласованную копию базы внутри работающего контейнера (`VACUUM INTO`, останавливать сайт не нужно), проверяет её (`PRAGMA integrity_check`) и кладёт в `backups/app-<дата_время>.db`. Рядом сохраняется `backups/env-<дата_время>` — копия `.env`. Она нужна для восстановления: от `APP_SECRET` зависят резервные коды 2FA и сессии, в ней же ключи API. Хранятся последние 14 копий (другое число — `BACKUP_KEEP=30`). Каталог `backups/` доступен только root: в копиях есть персональные данные, секреты 2FA и ключи.
+
+**2. Ежедневно по cron** (в 04:00 по времени сервера, в crontab root):
 
 ```bash
-( crontab -l 2>/dev/null; echo "0 4 * * * cd /opt/vpn-landing && docker compose exec -T vpn-landing node -e \"new (require('node:sqlite').DatabaseSync)('/app/data/app.db').exec(\\\"VACUUM INTO '/app/data/backup.db'\\\")\" && mv data/backup.db backups/app-\$(date +\\%F).db && ls -1t backups/app-*.db | tail -n +15 | xargs -r rm" ) | crontab -
+( sudo crontab -l 2>/dev/null; echo "0 4 * * * /opt/vpn-landing/scripts/backup.sh >> /var/log/vpn-landing-backup.log 2>&1" ) | sudo crontab -
 ```
 
-Восстановление: `docker compose down`, положить копию как `data/app.db`, `docker compose up -d`.
+На следующий день проверьте журнал `/var/log/vpn-landing-backup.log`: там должна быть строка `копия: backups/app-…`.
+
+**3. Копия на другой машине.** Копии в `backups/` не помогут, если пропадёт сам сервер. Регулярно забирайте их, например с домашнего компьютера или другого сервера:
+
+```bash
+rsync -a root@example.com:/opt/vpn-landing/backups/ ./vpn-landing-backups/
+```
+
+**Восстановление:**
+
+```bash
+cd /opt/vpn-landing
+sudo ls -lt backups/                                        # выберите копию
+sudo scripts/backup.sh restore backups/app-2026-09-20_04-00.db
+```
+
+Скрипт остановит контейнер, отложит текущую базу как `data/app.db.before-restore-<время>` вместе с файлами `-wal` и `-shm`, положит копию с нужным владельцем (uid 1000) и запустит контейнер. Не копируйте базу вручную поверх `data/app.db`: если рядом останется старый `app.db-wal`, SQLite применит его к восстановленной копии, и база окажется смесью старых и новых данных.
+
+- **Новый сервер:** выполните шаги 1–2 установки и перенесите копии с другой машины в `/opt/vpn-landing/backups/`. Вместо шага 3 верните `.env` из копии (`sudo cp backups/env-… .env`): нужен тот же `APP_SECRET`. Затем шаги 4–5 и восстановление базы.
+- **После восстановления** в базе сайта нет оплат и изменений, сделанных после создания копии. Сверьте платежи за этот период в кабинете Platega, а подписки — в панели Remnawave.
 
 ### Полезные команды
 
@@ -243,7 +271,7 @@ docker compose exec vpn-landing npm run admin:create -- --login olga --role supp
 - Сохраняется до 200 тыс. символов текста и 1 млн символов HTML; если письмо больше, в карточке будет пометка.
 
 ### Возвраты
-В платеже: **Возврат** → админка проверяет возможность возврата в Platega и показывает, сколько USDT спишется с баланса → вы выбираете, что сделать с подпиской (снять дни этого заказа, отключить, не трогать) → подтверждаете. Если Platega отвечает, что нужна ручная обработка, заказ получает статус «Возврат в обработке» — свяжитесь с поддержкой Platega.
+В платеже: **Возврат** → админка проверяет возможность возврата в Platega и показывает, сколько USDT спишется с баланса → вы выбираете, что сделать с подпиской (снять дни этого заказа, отключить, не трогать) → подтверждаете. Для заказа в статусе «Оплачен, выдаётся» дни ещё не начислены, поэтому варианта «снять дни» нет: после возврата заказ просто не будет выдан. Если Platega отвечает, что нужна ручная обработка, заказ получает статус «Возврат в обработке» — свяжитесь с поддержкой Platega.
 
 ### Безопасность
 - Пароли хранятся как scrypt-хэши, 2FA (TOTP) обязательна, резервные коды одноразовые.
@@ -388,6 +416,7 @@ src/wording.js        список недопустимых для банка ф
 src/admin/            админка: авторизация, API, операции
 admin-ui/             интерфейс админки
 scripts/admin.js      CLI: admin:create / admin:reset / admin:list
+scripts/backup.sh     резервная копия базы и .env, восстановление (sudo scripts/backup.sh [restore <файл>])
 scripts/check-wording.js  проверка текстов на недопустимые формулировки (npm run check-wording)
 scripts/demo.js       демо-режим с заглушками Platega, Remnawave, Resend и Telegram
 scripts/demo-mail.js  имитация входящего письма в демо (npm run demo:mail)

@@ -123,18 +123,26 @@ export function applyPaidOrder(orderId) {
                     note: 'paid',
                 });
             } else {
-                // Срок считаем сами: от текущей даты окончания, а если она прошла — от сегодня.
                 const current = new Date(rwUser.expireAt);
-                const base = current > new Date() ? current : new Date();
-                rwUser = await remnawave.updateUser({
-                    id: rwUser.id,
-                    status: 'ACTIVE',
-                    expireAt: addDays(base, order.days).toISOString(),
-                    hwidDeviceLimit: getSettings().paidDeviceLimit,
-                });
+                const target = order.target_expire_at ? new Date(order.target_expire_at) : null;
+                // Прошлая попытка уже продлила подписку, но ответ панели не дошёл (таймаут) — второй раз не продлеваем
+                const alreadyApplied = target && Math.abs(current - target) < 60_000;
+                if (!alreadyApplied) {
+                    // Срок считаем сами: от текущей даты окончания, а если она прошла — от сегодня.
+                    const base = current > new Date() ? current : new Date();
+                    const expireAt = addDays(base, order.days).toISOString();
+                    // Запоминаем ожидаемый срок до запроса: по нему повтор узнает, что продление уже прошло
+                    db.prepare('UPDATE orders SET target_expire_at = ? WHERE id = ?').run(expireAt, order.id);
+                    rwUser = await remnawave.updateUser({
+                        id: rwUser.id,
+                        status: 'ACTIVE',
+                        expireAt,
+                        hwidDeviceLimit: getSettings().paidDeviceLimit,
+                    });
+                }
             }
             db.prepare("UPDATE users SET plan_kind = 'paid' WHERE id = ?").run(user.id);
-            db.prepare("UPDATE orders SET status = 'applied', applied_at = datetime('now'), error = NULL WHERE id = ?").run(order.id);
+            db.prepare("UPDATE orders SET status = 'applied', applied_at = datetime('now'), error = NULL WHERE id = ? AND status = 'paid'").run(order.id);
             console.log(`[order ${order.id}] подписка ${rwUser.username} продлена до ${rwUser.expireAt}`);
             await notify(user.email, rwUser, false);
         } catch (err) {

@@ -401,10 +401,19 @@ async function handleOtherChat(msg) {
     }
 }
 
+// Группа поддержки ещё не указана: сообщения клиентов некуда переслать — предлагаем написать на почту (один раз)
+const notConfiguredNotified = new Set();
+async function handlePrivateNotConfigured(msg) {
+    if (!msg.from || msg.from.is_bot || notConfiguredNotified.has(msg.chat.id)) return;
+    console.warn(`[telegram] сообщение от ${msg.chat.id} не переслано: TELEGRAM_SUPPORT_CHAT_ID не задан`);
+    await sendToClient(msg.chat.id, `Поддержка в Telegram пока не подключена. Напишите нам на ${getSettings().supportEmail} — ответим по почте.`);
+    notConfiguredNotified.add(msg.chat.id);
+}
+
 async function handleUpdate(update) {
     const msg = update.message;
     if (!msg?.chat) return;
-    if (msg.chat.type === 'private') return groupId() ? handlePrivate(msg) : undefined;
+    if (msg.chat.type === 'private') return groupId() ? handlePrivate(msg) : handlePrivateNotConfigured(msg);
     if (groupId() && String(msg.chat.id) === groupId()) {
         if (msg.migrate_to_chat_id) {
             console.error(`[telegram] группа поддержки получила новый ID ${msg.migrate_to_chat_id} — укажите его в TELEGRAM_SUPPORT_CHAT_ID и перезапустите сайт`);

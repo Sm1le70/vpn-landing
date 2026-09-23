@@ -1,0 +1,2 @@
+# Скрипты для Linux-сервера: всегда с переводами строк LF, даже при checkout на Windows
+*.sh text eol=lf

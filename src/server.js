@@ -375,7 +375,7 @@ for (const [route, name] of Object.entries(pages)) {
 app.get('/robots.txt', (_req, res) => res.type('text/plain').send('User-agent: *\nDisallow: /cabinet\nDisallow: /api/\n'));
 app.use((_req, res) => res.status(404).type('html').send(renderPage('404')));
 
-app.listen(config.port, () => {
+const server = app.listen(config.port, () => {
     console.log(`[server] ${getSettings().brandName} слушает :${config.port} (${config.siteUrl})`);
     startBackgroundJobs();
     startSupportJobs();
@@ -384,3 +384,25 @@ app.listen(config.port, () => {
     ensureBootstrap();
     if (config.admin.path) console.log(`[server] админка: ${config.siteUrl}${config.admin.path}/`);
 });
+
+// Корректная остановка (docker stop / Ctrl+C): закрываем базу, чтобы SQLite перенёс WAL в основной файл.
+// Docker ждёт 10 с и затем убивает процесс, поэтому ждём незавершённые запросы не дольше 8 с.
+let stopping = false;
+function shutdown(signal) {
+    if (stopping) return;
+    stopping = true;
+    console.log(`[server] ${signal}: остановка`);
+    const exit = () => {
+        try {
+            db.close();
+        } catch (err) {
+            console.error('[server] закрытие базы:', err.message);
+        }
+        process.exit(0);
+    };
+    server.close(exit);
+    server.closeIdleConnections();
+    setTimeout(exit, 8_000).unref();
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

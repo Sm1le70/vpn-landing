@@ -404,6 +404,8 @@ export async function refundPreview(admin, orderId) {
         blockReason: check.blockReason || null,
         amount: order.amount,
         days: order.days,
+        // «Оплачен, выдаётся»: дни по заказу ещё не начислены, снимать нечего
+        daysApplied: order.status === 'applied',
     };
 }
 
@@ -418,11 +420,18 @@ export async function refundOrder(admin, orderId, { subscriptionAction, reason, 
     const check = await checkRefund(order.platega_tx_id);
     if (!check.supported) throw new AdminActionError(`Platega: возврат невозможен${check.blockReason ? ` (${check.blockReason})` : ''}`);
 
-    // Занимаем заказ до запроса в Platega: повторный клик или второй админ не отправят второй возврат
-    const claimed = db
-        .prepare("UPDATE orders SET status = 'refund_pending' WHERE id = ? AND status = ?")
-        .run(order.id, order.status).changes;
-    if (!claimed) throw new AdminActionError('Статус заказа уже изменился — обновите страницу', 409);
+    // Занимаем заказ до запроса в Platega: повторный клик или второй админ не отправят второй возврат.
+    // Внутри withUserLock — чтобы не пересечься с выдачей подписки по этому же заказу.
+    const claimedFrom = await withUserLock(user.id, async () => {
+        const fresh = loadOrder(order.id);
+        const claimed = ['applied', 'paid'].includes(fresh.status) && db
+            .prepare("UPDATE orders SET status = 'refund_pending' WHERE id = ? AND status = ?")
+            .run(fresh.id, fresh.status).changes;
+        if (!claimed) throw new AdminActionError('Статус заказа уже изменился — обновите страницу', 409);
+        return fresh.status;
+    });
+    // Заказ в статусе «Оплачен, выдаётся» ещё не продлил подписку — вычитать его дни нельзя
+    const daysApplied = claimedFrom === 'applied';
     let result;
     try {
         result = await refundTransaction(order.platega_tx_id);
@@ -433,7 +442,7 @@ export async function refundOrder(admin, orderId, { subscriptionAction, reason, 
     }
     const status = result.accepted ? 'refunded' : result.manualControlRequired ? 'refund_pending' : null;
     if (!status) {
-        db.prepare('UPDATE orders SET status = ? WHERE id = ?').run(order.status, order.id);
+        db.prepare('UPDATE orders SET status = ? WHERE id = ?').run(claimedFrom, order.id);
         throw new AdminActionError(`Platega отклонила возврат: ${result.message || 'без пояснений'}`);
     }
     db.prepare("UPDATE orders SET status = ?, refunded_at = datetime('now'), refund_info = ? WHERE id = ?").run(
@@ -445,6 +454,7 @@ export async function refundOrder(admin, orderId, { subscriptionAction, reason, 
     let subscription = null;
     try {
         subscription = await withUserLock(user.id, async () => {
+            if (subscriptionAction === 'remove_days' && !daysApplied) return { skipped: 'дни по заказу не начислялись' };
             if (subscriptionAction === 'remove_days' && user.rw_user_id) return (await changeDays(getUserRow(user.id), -order.days)).after;
             if (subscriptionAction === 'disable' && user.rw_user_id) {
                 const rw = await remnawave.disableUser(user.rw_user_id);

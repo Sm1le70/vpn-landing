@@ -3,6 +3,8 @@ services:
     build: .
     container_name: vpn-landing
     restart: unless-stopped
+    # Лёгкий init-процесс: передаёт сигналы остановки приложению и собирает завершённые процессы
+    init: true
     env_file: .env
     environment:
       DATABASE_PATH: /app/data/app.db
