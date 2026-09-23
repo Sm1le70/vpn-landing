@@ -200,7 +200,10 @@ docker compose ps                                  # статус
 docker compose logs -f vpn-landing                 # логи в реальном времени
 docker compose restart                             # перезапуск
 docker compose exec vpn-landing npm run admin:list # администраторы
+docker compose exec vpn-landing npm run login-code -- --email test@example.com  # код входа в кабинет без письма
 ```
+
+`login-code` — для тестового аккаунта: печатает одноразовый код (по умолчанию действует 24 ч, `--hours` до 72), который вводится в обычной форме входа. Письмо не отправляется, аккаунт создаётся при первом входе, сессия живёт 30 дней.
 
 Без Docker: `git clone …`, `cp .env.example .env`, затем `npm ci --omit=dev && npm start` (нужен Node.js ≥ 22.13; для автозапуска — systemd или pm2).
 
@@ -416,6 +419,7 @@ src/wording.js        список недопустимых для банка ф
 src/admin/            админка: авторизация, API, операции
 admin-ui/             интерфейс админки
 scripts/admin.js      CLI: admin:create / admin:reset / admin:list
+scripts/login-code.js код входа в кабинет без письма (npm run login-code)
 scripts/backup.sh     резервная копия базы и .env, восстановление (sudo scripts/backup.sh [restore <файл>])
 scripts/check-wording.js  проверка текстов на недопустимые формулировки (npm run check-wording)
 scripts/demo.js       демо-режим с заглушками Platega, Remnawave, Resend и Telegram

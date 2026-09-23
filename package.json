@@ -17,7 +17,8 @@
     "check-wording": "node scripts/check-wording.js",
     "admin:create": "node scripts/admin.js create",
     "admin:reset": "node scripts/admin.js reset",
-    "admin:list": "node scripts/admin.js list"
+    "admin:list": "node scripts/admin.js list",
+    "login-code": "node scripts/login-code.js"
   },
   "dependencies": {
     "express": "^5.1.0",

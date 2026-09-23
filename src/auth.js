@@ -25,12 +25,18 @@ export async function requestLoginCode(email) {
         const wait = Math.ceil((CODE_RESEND_MS - (now - existing.sent_at)) / 1000);
         throw new AuthError(`Код уже отправлен. Повторить можно через ${wait} с`);
     }
+    await sendLoginCode(email, issueLoginCode(email));
+}
+
+// Создаёт код входа без отправки письма (используется и консольной командой login-code).
+export function issueLoginCode(email, ttlMs = CODE_TTL_MS) {
+    const now = Date.now();
     const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
     db.prepare(
         `INSERT INTO login_codes (email, code_hash, expires_at, attempts, sent_at) VALUES (?, ?, ?, 0, ?)
          ON CONFLICT(email) DO UPDATE SET code_hash = excluded.code_hash, expires_at = excluded.expires_at, attempts = 0, sent_at = excluded.sent_at`,
-    ).run(email, hmac(`${email}:${code}`), now + CODE_TTL_MS, now);
-    await sendLoginCode(email, code);
+    ).run(email, hmac(`${email}:${code}`), now + ttlMs, now);
+    return code;
 }
 
 export function verifyLoginCode(email, code) {
