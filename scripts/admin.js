@@ -39,8 +39,9 @@ switch (command) {
     case 'reset': {
         const admin = db.prepare('SELECT * FROM admins WHERE login = ?').get(String(values.login ?? '').toLowerCase());
         if (!admin) fail('администратор не найден (npm run admin:list)');
-        db.prepare('UPDATE admins SET disabled = 0 WHERE id = ?').run(admin.id);
-        printLink(createSetupToken({ kind: 'reset', adminId: admin.id, role: admin.role }), `Сброс доступа для ${admin.login}`);
+        // Отключённая учётка включится только после того, как по ссылке зададут новые пароль и 2FA
+        printLink(createSetupToken({ kind: 'reset', adminId: admin.id, role: admin.role, enableAdmin: true }), `Сброс доступа для ${admin.login}`);
+        if (admin.disabled) console.log('  Учётная запись сейчас отключена и будет включена после завершения сброса.\n');
         break;
     }
     case 'list': {

@@ -580,7 +580,7 @@
                 <div class="card">
                     <h2>Действия</h2>
                     <div class="actions">
-                        ${btn('extend', admin ? 'Продлить / сократить' : `Продлить (до ${state.me.supportMaxDays} дн.)`, 'btn--primary')}
+                        ${admin || s ? btn('extend', admin ? 'Продлить / сократить' : `Продлить (до ${state.me.supportMaxDays} дн.)`, 'btn--primary') : ''}
                         ${s ? btn('resend', 'Отправить ссылку на почту') : ''}
                         ${s ? btn('revoke', 'Перевыпустить ссылку') : ''}
                         ${s ? btn('devices', 'Сбросить устройства') : ''}

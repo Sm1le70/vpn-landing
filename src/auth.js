@@ -64,7 +64,12 @@ function readCookie(req, name) {
     const header = req.headers.cookie ?? '';
     for (const part of header.split(';')) {
         const [k, ...v] = part.trim().split('=');
-        if (k === name) return decodeURIComponent(v.join('='));
+        if (k !== name) continue;
+        try {
+            return decodeURIComponent(v.join('='));
+        } catch {
+            return null; // битое значение cookie — считаем, что сессии нет
+        }
     }
     return null;
 }

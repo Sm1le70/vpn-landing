@@ -264,7 +264,9 @@ export function setupUrl(token) {
     return `${config.siteUrl}${config.admin.path}/#/setup/${token}`;
 }
 
-export function createSetupToken({ kind, adminId = null, login = null, role, createdBy = null }) {
+// enableAdmin — при завершении сброса включить учётку (admin:reset из консоли).
+// До этого старые пароль и 2FA отключённого администратора не работают.
+export function createSetupToken({ kind, adminId = null, login = null, role, createdBy = null, enableAdmin = false }) {
     const token = randomToken();
     tx(() => {
         // Для одного администратора действует только последняя ссылка.
@@ -272,8 +274,8 @@ export function createSetupToken({ kind, adminId = null, login = null, role, cre
         if (adminId) db.prepare('DELETE FROM admin_setup_tokens WHERE admin_id = ? AND used_at IS NULL').run(adminId);
         if (login && !adminId) db.prepare('DELETE FROM admin_setup_tokens WHERE login = ? AND used_at IS NULL').run(login);
         db.prepare(
-            'INSERT INTO admin_setup_tokens (token_hash, kind, admin_id, login, role, expires_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        ).run(hmac(token), kind, adminId, login, role, Date.now() + SETUP_TTL[kind], createdBy);
+            'INSERT INTO admin_setup_tokens (token_hash, kind, admin_id, login, role, expires_at, created_by, enable_admin) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        ).run(hmac(token), kind, adminId, login, role, Date.now() + SETUP_TTL[kind], createdBy, enableAdmin ? 1 : 0);
     });
     return { token, url: setupUrl(token), expiresInHours: SETUP_TTL[kind] / 3_600_000 };
 }
@@ -316,12 +318,9 @@ export function setupFinish(token, code) {
     const admin = tx(() => {
         let adminId = row.admin_id;
         if (row.kind === 'reset') {
-            db.prepare('UPDATE admins SET password_hash = ?, totp_secret = ?, backup_codes = ? WHERE id = ?').run(
-                pending.passwordHash,
-                pending.secret,
-                JSON.stringify(backup.hashes),
-                adminId,
-            );
+            db.prepare(
+                'UPDATE admins SET password_hash = ?, totp_secret = ?, backup_codes = ?, disabled = CASE WHEN ? THEN 0 ELSE disabled END WHERE id = ?',
+            ).run(pending.passwordHash, pending.secret, JSON.stringify(backup.hashes), row.enable_admin, adminId);
             destroyAdminSessions(adminId);
         } else {
             if (db.prepare('SELECT 1 FROM admins WHERE login = ?').get(pending.login)) {

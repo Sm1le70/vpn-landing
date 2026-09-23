@@ -374,11 +374,14 @@ async function handleCommand(client, name) {
 }
 
 // Сообщение из чужой группы или из группы, пока TELEGRAM_SUPPORT_CHAT_ID не задан
+const warnedChats = new Set();
 async function handleOtherChat(msg) {
     if (msg.chat.type === 'channel') return;
     if (!groupId()) {
         if (/^\/chat_id(@\w+)?\s*$/.test(String(msg.text ?? ''))) {
-            const forumNote = msg.chat.is_forum ? '' : '\n\nВ группе не включены темы — включите их в настройках группы.';
+            const forumNote = msg.chat.is_forum
+                ? ''
+                : '\n\nВ группе не включены темы — включите их в настройках группы. После этого ID группы изменится: напишите /chat_id ещё раз и укажите новый ID.';
             await tg('sendMessage', {
                 chat_id: msg.chat.id,
                 text: `ID группы: <code>${msg.chat.id}</code>\nУкажите его в TELEGRAM_SUPPORT_CHAT_ID и перезапустите сайт.${forumNote}`,
@@ -387,15 +390,28 @@ async function handleOtherChat(msg) {
         }
         return;
     }
-    // Бота добавили в постороннюю группу — выходим из неё
-    await tg('leaveChat', { chat_id: msg.chat.id }).catch(() => {});
+    // Посторонняя группа: сообщения игнорируем. Из группы не выходим — это может быть группа поддержки,
+    // у которой сменился ID (при включении тем Telegram превращает группу в супергруппу с новым ID).
+    const chatId = String(msg.chat.id);
+    if (String(msg.migrate_from_chat_id ?? '') === groupId()) {
+        console.error(`[telegram] группа поддержки получила новый ID ${chatId} — укажите его в TELEGRAM_SUPPORT_CHAT_ID и перезапустите сайт`);
+    } else if (!warnedChats.has(chatId)) {
+        warnedChats.add(chatId);
+        console.warn(`[telegram] сообщение из чата ${chatId} («${msg.chat.title ?? ''}»), а группа поддержки — ${groupId()}; сообщения из этого чата игнорируются`);
+    }
 }
 
 async function handleUpdate(update) {
     const msg = update.message;
     if (!msg?.chat) return;
     if (msg.chat.type === 'private') return groupId() ? handlePrivate(msg) : undefined;
-    if (groupId() && String(msg.chat.id) === groupId()) return handleGroup(msg);
+    if (groupId() && String(msg.chat.id) === groupId()) {
+        if (msg.migrate_to_chat_id) {
+            console.error(`[telegram] группа поддержки получила новый ID ${msg.migrate_to_chat_id} — укажите его в TELEGRAM_SUPPORT_CHAT_ID и перезапустите сайт`);
+            return;
+        }
+        return handleGroup(msg);
+    }
     return handleOtherChat(msg);
 }
 

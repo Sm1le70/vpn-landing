@@ -262,6 +262,8 @@ addColumn('users', 'rw_status', 'TEXT');
 addColumn('users', 'blocked', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('orders', 'refunded_at', 'TEXT');
 addColumn('orders', 'refund_info', 'TEXT');
+// Сброс доступа из консоли: включить отключённого администратора после завершения сброса
+addColumn('admin_setup_tokens', 'enable_admin', 'INTEGER NOT NULL DEFAULT 0');
 db.exec('CREATE INDEX IF NOT EXISTS users_expire ON users(expire_at)');
 
 export function tx(fn) {

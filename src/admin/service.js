@@ -5,6 +5,7 @@ import { remnawave } from '../remnawave.js';
 import { checkRefund, refundTransaction } from '../platega.js';
 import { sendAccountNotice } from '../mailer.js';
 import { onAccountUnlinked } from '../tgsupport.js';
+import { parseAddress } from '../support.js';
 import { getSettings, getPlan } from '../settings.js';
 import {
     addDays,
@@ -111,12 +112,14 @@ async function notifyUser(user, notify, payload) {
 
 // ---------- Действия с подпиской ----------
 
-// days > 0 — продление, days < 0 — сокращение. Если подписки нет, она создаётся.
-async function changeDays(user, days) {
+// days > 0 — продление, days < 0 — сокращение. Если подписки нет, она создаётся (если allowCreate).
+async function changeDays(user, days, { allowCreate = true } = {}) {
     let rw = await fetchRemnaUser(user);
     const before = rw ? { expireAt: rw.expireAt, status: rw.status } : null;
     if (!rw) {
         if (days < 0) throw new AdminActionError('У пользователя нет подписки — сокращать нечего');
+        // Создание подписки без оплаты — выдача доступа, это право только администратора
+        if (!allowCreate) throw new AdminActionError('У пользователя нет подписки. Выдать доступ может только администратор', 403);
         rw = await createRemnaUser(user, { expireAt: addDays(new Date(), days), deviceLimit: getSettings().paidDeviceLimit, note: 'admin' });
         db.prepare("UPDATE users SET plan_kind = 'paid' WHERE id = ? AND plan_kind = 'none'").run(user.id);
     } else {
@@ -143,7 +146,7 @@ export function extendUser(admin, userId, { days, reason, notify }) {
     const r = requireReason(reason);
     const user = loadUser(userId);
     return withUserLock(user.id, async () => {
-        const { rw, before, after } = await changeDays(user, d);
+        const { rw, before, after } = await changeDays(user, d, { allowCreate: admin.role === 'admin' });
         const notified = await notifyUser(user, notify, {
             title: d > 0 ? 'Подписка продлена' : 'Срок подписки изменён',
             text: d > 0 ? `Ваша подписка продлена на ${d} дн. и действует до ${fmtDate(rw.expireAt)}.` : `Срок действия подписки изменён: до ${fmtDate(rw.expireAt)}.`,
@@ -332,13 +335,27 @@ export function deleteAccount(admin, userId, { reason, confirmEmail }) {
             ).run(anonymized, user.id);
             // Email в журнале тоже обезличиваем, иначе удаление данных не полное
             db.prepare("UPDATE audit_log SET target_label = ? WHERE target_type = 'user' AND target_id = ?").run(maskEmail(user.email), String(user.id));
+            // Записи о заказах пользователя (сверка, возвраты) тоже подписаны его email
+            db.prepare(
+                "UPDATE audit_log SET target_label = ? WHERE target_type = 'order' AND target_id IN (SELECT id FROM orders WHERE user_id = ?) AND target_label IS NOT NULL",
+            ).run(maskEmail(user.email), user.id);
             // Переписка с поддержкой содержит персональные данные — удаляем (сообщения и вложения удалятся каскадно)
             const threadIds = db.prepare('SELECT id FROM support_threads WHERE user_id = ? OR email = ?').all(user.id, user.email).map((t) => String(t.id));
             for (const id of threadIds) {
                 db.prepare("UPDATE audit_log SET target_label = ? WHERE target_type = 'support_thread' AND target_id = ?").run(maskEmail(user.email), id);
             }
             supportThreadsDeleted = db.prepare('DELETE FROM support_threads WHERE user_id = ? OR email = ?').run(user.id, user.email).changes;
-            db.prepare("DELETE FROM support_inbox WHERE json_extract(payload, '$.from') = ?").run(user.email);
+            // Отправитель в очереди хранится как в вебхуке — обычно "Имя <email>", поэтому сравниваем разобранный адрес
+            const deleteInbox = db.prepare('DELETE FROM support_inbox WHERE email_id = ?');
+            for (const row of db.prepare('SELECT email_id, payload FROM support_inbox').all()) {
+                let from = '';
+                try {
+                    from = JSON.parse(row.payload).from;
+                } catch {
+                    continue;
+                }
+                if (parseAddress(from).email === user.email) deleteInbox.run(row.email_id);
+            }
             // Telegram: снимаем привязку, тема в группе поддержки остаётся
             telegramUnlinked = db.prepare('SELECT tg_user_id FROM tg_clients WHERE user_id = ?').all(user.id).map((c) => c.tg_user_id);
             db.prepare('UPDATE tg_clients SET user_id = NULL WHERE user_id = ?').run(user.id);
