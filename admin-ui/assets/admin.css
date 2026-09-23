@@ -167,6 +167,25 @@ details.raw pre { background: var(--bg); border: 1px solid var(--border); border
 .app-edit { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 10px; }
 .link-row { display: grid; grid-template-columns: 160px 1fr auto; gap: 8px; margin-top: 6px; }
 
+/* ---------- Обращения ---------- */
+.nav-badge { float: right; min-width: 20px; padding: 0 6px; border-radius: 999px; background: var(--accent); color: #fff; font-size: 12px; font-weight: 700; text-align: center; }
+.chip .count { margin-left: 4px; color: var(--muted); font-weight: 500; }
+tr.unread td { font-weight: 700; }
+tr.unread td:first-child::before { content: ''; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); margin-right: 7px; vertical-align: middle; }
+.msg { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; background: var(--bg-alt); }
+.msg--out { background: rgba(91, 140, 255, .06); border-color: rgba(91, 140, 255, .3); margin-left: 32px; }
+.msg-head { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.msg-head .meta { color: var(--muted); font-size: 12px; }
+.msg-text { white-space: pre-wrap; word-break: break-word; margin: 0; font: inherit; }
+.msg-text .quote { color: var(--muted); }
+.msg-html { width: 100%; height: 420px; border: 1px solid var(--border); border-radius: 8px; background: #fff; margin-top: 8px; }
+.msg-files { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.reply-box textarea { min-height: 140px; }
+
+@media (max-width: 900px) {
+    .msg--out { margin-left: 0; }
+}
+
 @media (max-width: 900px) {
     .shell { grid-template-columns: 1fr; }
     .sidebar { position: fixed; inset: 0 auto 0 0; width: 240px; z-index: 40; transform: translateX(-100%); transition: transform .2s; }

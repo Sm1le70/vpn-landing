@@ -127,6 +127,78 @@ db.exec(`
     );
     CREATE INDEX IF NOT EXISTS audit_target ON audit_log(target_type, target_id);
     CREATE INDEX IF NOT EXISTS audit_admin ON audit_log(admin_id);
+
+    -- Обращения в поддержку (входящая почта через Resend Inbound)
+    CREATE TABLE IF NOT EXISTS support_threads (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        email           TEXT NOT NULL,
+        user_id         INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        subject         TEXT NOT NULL DEFAULT '',
+        -- тема без Re:/Fwd:, в нижнем регистре — для привязки писем без заголовков цепочки
+        subject_norm    TEXT NOT NULL DEFAULT '',
+        -- 'new' | 'waiting' | 'answered' | 'closed'
+        status          TEXT NOT NULL DEFAULT 'new',
+        unread          INTEGER NOT NULL DEFAULT 1,
+        last_message_at TEXT NOT NULL DEFAULT (datetime('now')),
+        created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS support_threads_status ON support_threads(status, last_message_at);
+    CREATE INDEX IF NOT EXISTS support_threads_email ON support_threads(email, subject_norm);
+
+    CREATE TABLE IF NOT EXISTS support_messages (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        thread_id      INTEGER NOT NULL REFERENCES support_threads(id) ON DELETE CASCADE,
+        -- 'in' | 'out'
+        direction      TEXT NOT NULL,
+        -- email_id входящего письма или id отправленного в Resend
+        resend_id      TEXT UNIQUE,
+        message_id     TEXT,
+        in_reply_to    TEXT,
+        references_hdr TEXT,
+        from_addr      TEXT,
+        from_name      TEXT,
+        to_addrs       TEXT,
+        cc_addrs       TEXT,
+        subject        TEXT,
+        text           TEXT,
+        html           TEXT,
+        truncated      INTEGER NOT NULL DEFAULT 0,
+        -- содержимое письма получить не удалось, сохранены только метаданные
+        content_missing INTEGER NOT NULL DEFAULT 0,
+        admin_id       INTEGER,
+        admin_login    TEXT,
+        created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS support_messages_thread ON support_messages(thread_id, id);
+    CREATE INDEX IF NOT EXISTS support_messages_mid ON support_messages(message_id);
+
+    -- Содержимое вложений не храним: скачивается по требованию через API Resend
+    CREATE TABLE IF NOT EXISTS support_attachments (
+        id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+        message_id           INTEGER NOT NULL REFERENCES support_messages(id) ON DELETE CASCADE,
+        resend_attachment_id TEXT NOT NULL,
+        filename             TEXT,
+        content_type         TEXT,
+        size                 INTEGER,
+        content_disposition  TEXT,
+        content_id           TEXT
+    );
+    CREATE INDEX IF NOT EXISTS support_attachments_msg ON support_attachments(message_id);
+
+    -- Очередь входящих вебхуков: email_id уникален, повторная доставка не создаёт дубль
+    CREATE TABLE IF NOT EXISTS support_inbox (
+        email_id        TEXT PRIMARY KEY,
+        payload         TEXT NOT NULL,
+        -- 'pending' | 'done' | 'ignored'
+        status          TEXT NOT NULL DEFAULT 'pending',
+        attempts        INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at INTEGER NOT NULL DEFAULT 0,
+        last_error      TEXT,
+        ignore_reason   TEXT,
+        received_at     TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS support_inbox_pending ON support_inbox(status, next_attempt_at);
 `);
 
 // Миграции существующих баз: добавляем недостающие колонки.

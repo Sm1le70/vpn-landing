@@ -7,6 +7,7 @@ const APP_PORT = Number(process.env.DEMO_PORT) || 3000;
 const MOCK_PORT = APP_PORT + 999;
 const APP = `http://localhost:${APP_PORT}`;
 const MOCK = `http://localhost:${MOCK_PORT}`;
+const DEMO_WEBHOOK_SECRET = `whsec_${Buffer.from('demo-inbound-webhook-secret').toString('base64')}`;
 
 // Значения из этого файла имеют приоритет над .env
 Object.assign(process.env, {
@@ -21,12 +22,19 @@ Object.assign(process.env, {
     PLATEGA_URL: MOCK,
     PLATEGA_MERCHANT_ID: 'demo-merchant',
     PLATEGA_SECRET: 'demo-secret',
-    RESEND_API_KEY: '', // письма (и коды входа) выводятся в консоль
+    // Resend — заглушка: исходящие письма (и коды входа) выводятся в консоль,
+    // входящие письма поддержки имитируются кнопкой в админке или npm run demo:mail
+    RESEND_API_KEY: 'demo',
+    RESEND_API_URL: MOCK,
+    RESEND_INBOUND_WEBHOOK_SECRET: DEMO_WEBHOOK_SECRET,
     ADMIN_PATH: '/admin-demo',
     DEMO_ADMIN_NO_2FA: 'true', // в демо вход в админку без 2FA: admin / admin и support / support
 });
 
 const transactions = new Map();
+// Resend: отправленные и «полученные» письма
+const sentEmails = new Map();
+const receivedEmails = new Map();
 const users = new Map();
 let nextUserId = 1;
 // Демо-устройства: у каждой новой подписки появляется одно «подключённое» устройство
@@ -54,6 +62,55 @@ async function sendCallback(t) {
         headers: { 'Content-Type': 'application/json', 'X-MerchantId': 'demo-merchant', 'X-Secret': 'demo-secret' },
         body: JSON.stringify({ id: t.id, amount: t.paymentDetails.amount, currency: 'RUB', status: t.status, paymentMethod: 2, payload: t.payload }),
     }).catch((err) => console.error('[demo] callback:', err.message));
+}
+
+function demoReceivedEmail({ from, subject, text, inReplyTo, extraHeaders }) {
+    const raw = String(from || 'client@example.com').trim();
+    const address = (raw.match(/<([^>]+)>/)?.[1] ?? raw).toLowerCase();
+    const id = crypto.randomUUID();
+    const messageId = `<${crypto.randomUUID()}@mail.example.com>`;
+    const body = String(text || 'Здравствуйте! Не получается подключиться, подскажите, что делать?');
+    const headers = { from: `Клиент <${address}>`, 'message-id': messageId, 'mime-version': '1.0' };
+    if (inReplyTo) Object.assign(headers, { 'in-reply-to': inReplyTo, references: inReplyTo });
+    Object.assign(headers, extraHeaders);
+    const content = Buffer.from(`Демо-вложение к письму ${id}\n`);
+    return {
+        object: 'email',
+        id,
+        to: ['support@demo.local'],
+        from: address,
+        created_at: new Date().toISOString(),
+        subject: String(subject || 'Вопрос по подписке'),
+        // HTML со скриптом и внешней картинкой — чтобы проверить, что админка их не выполняет и не загружает
+        html: `<p>${body.replace(/[<>&]/g, '').replace(/\n/g, '<br>')}</p><script>alert('xss')</script><img src="https://example.com/pixel.gif" alt="pixel">`,
+        html_format: 'cid',
+        text: body,
+        headers,
+        bcc: [],
+        cc: [],
+        reply_to: [],
+        message_id: messageId,
+        attachments: [{ id: crypto.randomUUID(), filename: 'demo.txt', content_type: 'text/plain', content_disposition: 'attachment', content_id: null, size: content.length, content }],
+    };
+}
+
+async function sendInboundWebhook(email) {
+    const { signWebhook } = await import('../src/resend.js');
+    const payload = JSON.stringify({
+        type: 'email.received',
+        created_at: new Date().toISOString(),
+        data: {
+            email_id: email.id, created_at: email.created_at, from: email.from, to: email.to, cc: [], bcc: [],
+            message_id: email.message_id, subject: email.subject,
+            attachments: email.attachments.map(({ content, size, ...a }) => a),
+        },
+    });
+    const res = await fetch(`${APP}/webhooks/resend-inbound`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...signWebhook(payload, DEMO_WEBHOOK_SECRET) },
+        body: payload,
+    });
+    console.log(`[demo] входящее письмо от ${email.from} → вебхук: ${res.status}`);
 }
 
 http.createServer((req, res) => {
@@ -94,6 +151,40 @@ http.createServer((req, res) => {
             await sendCallback(t);
             res.writeHead(302, { Location: paid ? t.return : t.failedUrl });
             return res.end();
+        }
+
+        // ---- Resend ----
+        if (path === '/emails' && req.method === 'POST') {
+            const id = crypto.randomUUID();
+            sentEmails.set(id, { object: 'email', id, message_id: `<${crypto.randomUUID()}@demo.resend.local>`, ...body });
+            const extra = body.headers ? `\nЗаголовки: ${JSON.stringify(body.headers)}` : '';
+            console.log(`[demo mail] From: ${body.from}; To: ${body.to}; ${body.subject}${extra}\n${body.text}\n`);
+            return json(res, 200, { id });
+        }
+        if ((m = path.match(/^\/emails\/receiving\/([\w-]+)\/attachments\/([\w-]+)$/))) {
+            const att = receivedEmails.get(m[1])?.attachments.find((a) => a.id === m[2]);
+            return att ? json(res, 200, { object: 'attachment', ...att, download_url: `${MOCK}/demo/files/${m[1]}/${m[2]}` }) : json(res, 404, {});
+        }
+        if ((m = path.match(/^\/emails\/receiving\/([\w-]+)$/))) {
+            const email = receivedEmails.get(m[1]);
+            return email ? json(res, 200, email) : json(res, 404, { message: 'not found' });
+        }
+        if ((m = path.match(/^\/emails\/([\w-]+)$/))) {
+            const email = sentEmails.get(m[1]);
+            return email ? json(res, 200, email) : json(res, 404, { message: 'not found' });
+        }
+        if ((m = path.match(/^\/demo\/files\/([\w-]+)\/([\w-]+)$/))) {
+            const att = receivedEmails.get(m[1])?.attachments.find((a) => a.id === m[2]);
+            if (!att) return json(res, 404, {});
+            res.writeHead(200, { 'Content-Type': att.content_type });
+            return res.end(att.content);
+        }
+        // Имитация входящего письма: письмо «принимается» и приложению уходит подписанный вебхук
+        if (path === '/demo/inbound' && req.method === 'POST') {
+            const email = demoReceivedEmail(body);
+            receivedEmails.set(email.id, email);
+            await sendInboundWebhook(email);
+            return json(res, 200, { id: email.id });
         }
 
         // ---- Remnawave ----
@@ -153,6 +244,7 @@ http.createServer((req, res) => {
   Откройте: ${APP}
   Код входа в кабинет появится здесь, в консоли ("Код входа: ...")
   Админка:  ${APP}/admin-demo/  (admin / admin, support / support)
+  Письмо в поддержку: кнопка в разделе «Обращения» или npm run demo:mail
   База демо: data/demo.db (удалите файл, чтобы начать заново)
 ==============================================================
 `);

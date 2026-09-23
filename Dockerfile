@@ -11,6 +11,7 @@ COPY views ./views
 COPY public ./public
 COPY config ./config
 COPY admin-ui ./admin-ui
+COPY scripts ./scripts
 
 RUN mkdir -p /app/data && chown -R node:node /app/data
 USER node

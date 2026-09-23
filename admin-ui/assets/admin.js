@@ -122,6 +122,7 @@
         { path: 'dashboard', title: 'Сводка', admin: true },
         { path: 'users', title: 'Пользователи' },
         { path: 'orders', title: 'Платежи' },
+        { path: 'support', title: 'Обращения' },
         { path: 'plans', title: 'Тарифы', admin: true },
         { path: 'apps', title: 'Приложения', admin: true },
         { path: 'settings', title: 'Настройки', admin: true },
@@ -187,6 +188,20 @@
         }
         document.getElementById('nav').innerHTML = items;
         document.querySelector('.shell').classList.remove('nav-open');
+        refreshSupportBadge();
+    }
+
+    // Число непрочитанных обращений рядом с пунктом меню
+    async function refreshSupportBadge() {
+        const link = document.querySelector('.nav-link[href="#/support"]');
+        if (!link) return;
+        try {
+            const { unread } = await api('GET', 'support/unread');
+            link.querySelector('.nav-badge')?.remove();
+            if (unread) link.insertAdjacentHTML('beforeend', `<span class="nav-badge">${unread}</span>`);
+        } catch {
+            // значок необязателен
+        }
     }
 
     // ---------- Вход ----------
@@ -593,12 +608,21 @@
                 <div class="table-wrap">${ordersTable(d.orders, { showEmail: false })}</div>
             </div>
             <div class="card">
+                <h2>Обращения в поддержку</h2>
+                <div class="table-wrap"><table class="t"><thead><tr><th>Тема</th><th>Статус</th><th class="num">Писем</th><th>Последнее</th></tr></thead><tbody>
+                ${(d.supportThreads || []).map((x) => `<tr class="row-link ${x.unread ? 'unread' : ''}" data-href="#/support/${x.id}">
+                    <td>${esc(x.subject || '(без темы)')}</td><td>${supportPill(x.status)}</td><td class="num">${x.messagesCount}</td>
+                    <td class="nowrap muted">${fmtDateTime(x.lastMessageAt)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">Обращений нет</td></tr>'}
+                </tbody></table></div>
+            </div>
+            <div class="card">
                 <h2>История действий администраторов</h2>
                 ${d.history.map(historyItem).join('') || '<p class="muted">Пока нет.</p>'}
             </div>`;
 
         view.querySelectorAll('[data-copy]').forEach((b) => (b.onclick = () => copy(b.dataset.copy)));
         bindOrderActions(view, () => renderUserCard(view, id));
+        bindRowLinks(view);
         const done = (msg) => {
             toast(msg);
             renderUserCard(view, id);
@@ -813,6 +837,164 @@
         pager(list, data, (p) => (location.hash = `#/orders?${qs({ ...f, page: p })}`));
     };
 
+    // --- Обращения ---
+    const SUPPORT_STATUS = { new: ['Новое', 'info'], waiting: ['Ждёт ответа', 'warn'], answered: ['Отвечено', 'ok'], closed: ['Закрыто', ''] };
+    const supportPill = (s) => {
+        const [label, tone] = SUPPORT_STATUS[s] || [s, ''];
+        return `<span class="pill ${tone ? `pill--${tone}` : ''}">${esc(label)}</span>`;
+    };
+    const SUPPORT_FILTERS = [['open', 'Открытые'], ['unread', 'Непрочитанные'], ['new', 'Новые'], ['waiting', 'Ждут ответа'], ['answered', 'Отвечено'], ['closed', 'Закрыто'], ['', 'Все']];
+    const fileSize = (n) => (n == null ? '' : n < 1024 ? `${n} Б` : n < 1024 ** 2 ? `${(n / 1024).toFixed(0)} КБ` : `${(n / 1024 ** 2).toFixed(1)} МБ`);
+
+    VIEWS.support = async (view, r) => {
+        if (r.params[0]) return renderThread(view, r.params[0]);
+        const f = { status: r.query.has('status') ? r.query.get('status') : 'open', q: r.query.get('q') || '', page: Number(r.query.get('page')) || 1 };
+        view.innerHTML = `
+            <div class="page-head"><h1>Обращения</h1>
+                ${state.me.demo ? '<button class="btn" id="demo-mail">Сымитировать письмо (демо)</button>' : ''}
+            </div>
+            <div class="toolbar">
+                <input type="search" id="q" placeholder="Поиск по email или теме" value="${esc(f.q)}">
+                <div class="chips" id="chips"></div>
+            </div>
+            <div class="card" style="padding:6px 10px"><div id="list" class="table-wrap muted">Загрузка…</div></div>`;
+        const go = (patch) => (location.hash = `#/support?${new URLSearchParams({ ...f, page: 1, ...patch }).toString()}`);
+        let t;
+        view.querySelector('#q').addEventListener('input', (e) => {
+            clearTimeout(t);
+            t = setTimeout(() => go({ q: e.target.value }), 350);
+        });
+        if (state.me.demo) view.querySelector('#demo-mail').onclick = demoMailModal;
+
+        const data = await api('GET', `support?${qs(f)}`);
+        view.querySelector('#chips').innerHTML = SUPPORT_FILTERS.map(([k, title]) => {
+            const n = k ? data.counts[k] : null;
+            return `<button class="chip ${f.status === k ? 'active' : ''}" data-f="${k}">${title}${n ? `<span class="count">${n}</span>` : ''}</button>`;
+        }).join('');
+        view.querySelectorAll('[data-f]').forEach((b) => (b.onclick = () => go({ status: b.dataset.f })));
+
+        const list = view.querySelector('#list');
+        list.classList.remove('muted');
+        list.innerHTML = `<table class="t"><thead><tr><th>Email</th><th>Тема</th><th>Статус</th><th class="num">Писем</th><th>Последнее</th></tr></thead><tbody>
+            ${data.items.map((x) => `<tr class="row-link ${x.unread ? 'unread' : ''}" data-href="#/support/${x.id}">
+                <td>${esc(x.email)}</td>
+                <td>${esc(x.subject || '(без темы)')}</td>
+                <td>${supportPill(x.status)}</td>
+                <td class="num">${x.messagesCount}</td>
+                <td class="nowrap muted">${fmtDateTime(x.lastMessageAt)}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">Обращений нет</td></tr>'}
+            </tbody></table>`;
+        bindRowLinks(list);
+        pager(list, data, (p) => go({ page: p }));
+        const q = view.querySelector('#q');
+        if (f.q) {
+            q.focus();
+            q.setSelectionRange(q.value.length, q.value.length);
+        }
+    };
+
+    function demoMailModal() {
+        modal({
+            title: 'Входящее письмо (демо)',
+            subtitle: 'Демо-версия Resend «примет» письмо и отправит приложению подписанный вебхук — как в настоящей работе.',
+            body: `<label class="field"><span>От кого</span><input type="email" name="from" value="client@example.com" required></label>
+                <label class="field"><span>Тема</span><input type="text" name="subject" value="Вопрос по подписке"></label>
+                <label class="field"><span>Текст</span><textarea name="text">Здравствуйте! Не получается подключиться, подскажите, что делать?</textarea></label>
+                <label class="check"><input type="checkbox" name="replyToLast"> Ответ клиента на последний ответ поддержки (In-Reply-To)</label>`,
+            submitText: 'Отправить',
+            onSubmit: async (form) => {
+                await api('POST', 'support/demo-inbound', {
+                    from: form.from.value, subject: form.subject.value, text: form.text.value, replyToLast: form.replyToLast.checked,
+                });
+                toast('Письмо отправлено, обновляю список…');
+                setTimeout(route, 800);
+            },
+        });
+    }
+
+    // Текст письма: всё экранируется, строки цитаты ("> ") показываются бледнее
+    const messageText = (text) => esc(text || '').split('\n')
+        .map((line) => (/^\s*&gt;/.test(line) ? `<span class="quote">${line}</span>` : line)).join('\n');
+
+    async function renderThread(view, id) {
+        const d = await api('GET', `support/${id}`);
+        const t = d.thread;
+        view.innerHTML = `
+            <div class="page-head">
+                <div><a href="#/support" class="small">← Обращения</a><h1 style="margin-top:4px">${esc(t.subject || '(без темы)')}</h1>
+                    <div class="muted">№${t.id} · ${esc(t.email)}${d.user ? ` · <a href="#/users/${d.user.id}">Карточка пользователя</a>` : ' · не зарегистрирован на сайте'}</div>
+                </div>
+                <div class="actions" style="align-items:center">${supportPill(t.status)}
+                    <select id="status" style="width:auto">${Object.entries(SUPPORT_STATUS).map(([k, [label]]) => `<option value="${k}" ${t.status === k ? 'selected' : ''}>${label}</option>`).join('')}</select>
+                </div>
+            </div>
+            <div id="messages">${d.messages.map((m) => `
+                <div class="msg ${m.direction === 'out' ? 'msg--out' : ''}">
+                    <div class="msg-head">
+                        <div><b>${m.direction === 'out' ? `Поддержка${m.adminLogin ? ` (${esc(m.adminLogin)})` : ''}` : esc(m.fromName ? `${m.fromName} <${m.fromAddr}>` : m.fromAddr)}</b>
+                            <div class="meta">${m.direction === 'out' ? `кому: ${esc(m.to)}` : `кому: ${esc(m.to || '—')}${m.cc ? ` · копия: ${esc(m.cc)}` : ''}`}</div></div>
+                        <div class="meta">${fmtDateTime(m.createdAt)}</div>
+                    </div>
+                    ${m.contentMissing ? '<div class="note note--warn" style="margin-bottom:8px">Текст письма получить не удалось — сохранены только отправитель и тема. Письмо можно посмотреть в панели Resend.</div>' : ''}
+                    <pre class="msg-text">${messageText(m.text) || '<span class="muted">(пустое письмо)</span>'}</pre>
+                    ${m.truncated ? '<p class="small muted">Письмо слишком большое и сохранено не полностью.</p>' : ''}
+                    ${m.hasHtml ? `<div style="margin-top:8px"><button class="btn btn--sm" data-html="${m.id}">Показать HTML-версию</button>
+                        <span class="small muted">— откроется в изолированном окне: без скриптов и внешних картинок</span></div>` : ''}
+                    ${m.attachments.length ? `<div class="msg-files">${m.attachments.map((a) => `<a class="btn btn--sm" href="api/support/attachments/${a.id}" download>📎 ${esc(a.filename)} <span class="muted">${fileSize(a.size)}</span></a>`).join('')}</div>` : ''}
+                </div>`).join('')}
+            </div>
+            <div class="card reply-box">
+                <h2>Ответить</h2>
+                <form class="form" id="reply">
+                    <p class="small muted" style="margin:0">Письмо уйдёт на ${esc(t.email)} с темой «Re: ${esc(t.subject || `Обращение №${t.id}`)}». Предыдущее сообщение клиента будет процитировано внизу.</p>
+                    <textarea name="text" required maxlength="20000" placeholder="Текст ответа"></textarea>
+                    <div class="actions" style="justify-content:space-between;align-items:center">
+                        <label class="check"><input type="checkbox" name="close"> Закрыть обращение после ответа</label>
+                        <button class="btn btn--primary">Отправить ответ</button>
+                    </div>
+                    <p class="form-error" hidden></p>
+                </form>
+            </div>`;
+        refreshSupportBadge();
+
+        view.querySelectorAll('[data-html]').forEach((b) => (b.onclick = () => {
+            // sandbox без allow-scripts и allow-same-origin; сервер дополнительно запрещает внешние ресурсы через CSP
+            const frame = document.createElement('iframe');
+            frame.className = 'msg-html';
+            frame.setAttribute('sandbox', '');
+            frame.setAttribute('referrerpolicy', 'no-referrer');
+            frame.src = `api/support/messages/${b.dataset.html}/html`;
+            b.parentElement.replaceWith(frame);
+        }));
+
+        view.querySelector('#status').onchange = async (e) => {
+            try {
+                await api('POST', `support/${id}/status`, { status: e.target.value });
+                toast('Статус изменён');
+                renderThread(view, id);
+            } catch (err) {
+                toast(err.message, 'bad');
+            }
+        };
+
+        const form = view.querySelector('#reply');
+        form.onsubmit = async (e) => {
+            e.preventDefault();
+            const errEl = form.querySelector('.form-error');
+            const btn = form.querySelector('button');
+            errEl.hidden = true;
+            btn.disabled = true;
+            try {
+                const r = await api('POST', `support/${id}/reply`, { text: form.text.value, close: form.close.checked });
+                toast(r.sent ? 'Ответ отправлен' : 'Ответ сохранён (RESEND_API_KEY не задан — письмо выведено в консоль)');
+                renderThread(view, id);
+            } catch (err) {
+                errEl.textContent = err.message;
+                errEl.hidden = false;
+                btn.disabled = false;
+            }
+        };
+    }
+
     // --- Тарифы ---
     VIEWS.plans = async (view) => {
         let plans = await api('GET', 'plans');
@@ -1005,7 +1187,7 @@
                     ${a.disabled ? `<button class="btn btn--sm" data-enable="${a.id}">Включить</button>` : `<button class="btn btn--sm btn--danger" data-disable="${a.id}">Отключить</button>`}` : ''}
                 </td></tr>`).join('')}
             </tbody></table></div></div>
-            <div class="note">Роль «Поддержка»: просмотр пользователей и платежей, продление до ${state.me.supportMaxDays} дней, сброс устройств, перевыпуск и повторная отправка ссылки. Возвраты, статистика, тарифы и настройки — только администраторам.</div>`;
+            <div class="note">Роль «Поддержка»: просмотр пользователей и платежей, ответы на обращения, продление до ${state.me.supportMaxDays} дней, сброс устройств, перевыпуск и повторная отправка ссылки. Возвраты, статистика, тарифы и настройки — только администраторам.</div>`;
         const reload = () => VIEWS.admins(view);
         view.querySelector('#invite').onclick = () => modal({
             title: 'Пригласить сотрудника',
@@ -1066,7 +1248,7 @@
         const data = await api('GET', `audit?${qs(f)}`);
         const list = view.querySelector('#list');
         list.innerHTML = data.items.map((h) => {
-            const link = h.targetType === 'user' ? `#/users/${h.targetId}` : null;
+            const link = h.targetType === 'user' ? `#/users/${h.targetId}` : h.targetType === 'support_thread' ? `#/support/${h.targetId}` : null;
             return historyItem({ ...h, targetLabel: h.targetLabel && link ? null : h.targetLabel }).replace(
                 '</b>',
                 `</b>${link ? ` · <a href="${link}">${esc(h.targetLabel)}</a>` : ''}`,

@@ -59,6 +59,8 @@ export const ACTION_TITLES = {
     'user.reset_trial': 'Сброс пробного периода',
     'user.delete_subscription': 'Удаление подписки',
     'user.delete_account': 'Удаление аккаунта',
+    'support.reply': 'Ответ на обращение',
+    'support.status': 'Смена статуса обращения',
     'order.sync': 'Сверка заказа с Platega',
     'order.refund': 'Возврат средств',
     'plans.update': 'Изменение тарифов',
@@ -317,6 +319,7 @@ export function deleteAccount(admin, userId, { reason, confirmEmail }) {
         const rw = await fetchRemnaUser(user);
         if (rw) await remnawave.deleteUser(rw.id);
         const anonymized = `deleted-${user.id}@deleted.invalid`;
+        let supportThreadsDeleted = 0;
         tx(() => {
             db.prepare('DELETE FROM sessions WHERE user_id = ?').run(user.id);
             db.prepare('DELETE FROM login_codes WHERE email = ?').run(user.email);
@@ -327,10 +330,17 @@ export function deleteAccount(admin, userId, { reason, confirmEmail }) {
             ).run(anonymized, user.id);
             // Email в журнале тоже обезличиваем, иначе удаление данных не полное
             db.prepare("UPDATE audit_log SET target_label = ? WHERE target_type = 'user' AND target_id = ?").run(maskEmail(user.email), String(user.id));
+            // Переписка с поддержкой содержит персональные данные — удаляем (сообщения и вложения удалятся каскадно)
+            const threadIds = db.prepare('SELECT id FROM support_threads WHERE user_id = ? OR email = ?').all(user.id, user.email).map((t) => String(t.id));
+            for (const id of threadIds) {
+                db.prepare("UPDATE audit_log SET target_label = ? WHERE target_type = 'support_thread' AND target_id = ?").run(maskEmail(user.email), id);
+            }
+            supportThreadsDeleted = db.prepare('DELETE FROM support_threads WHERE user_id = ? OR email = ?').run(user.id, user.email).changes;
+            db.prepare("DELETE FROM support_inbox WHERE json_extract(payload, '$.from') = ?").run(user.email);
         });
         audit(admin, 'user.delete_account', {
             targetType: 'user', targetId: user.id, targetLabel: maskEmail(user.email), reason: r,
-            details: { removedPanelUser: rw ? { id: rw.id, username: rw.username } : null, ordersKept: db.prepare('SELECT COUNT(*) AS n FROM orders WHERE user_id = ?').get(user.id).n },
+            details: { removedPanelUser: rw ? { id: rw.id, username: rw.username } : null, ordersKept: db.prepare('SELECT COUNT(*) AS n FROM orders WHERE user_id = ?').get(user.id).n, supportThreadsDeleted },
         });
         return { ok: true };
     });

@@ -22,6 +22,7 @@ import {
     validateLogin,
 } from './auth.js';
 import * as svc from './service.js';
+import * as support from './support.js';
 
 const UI_DIR = path.join(ROOT_DIR, 'admin-ui');
 
@@ -71,6 +72,11 @@ export function adminRouter() {
             const out = await fn(req, res);
             if (!res.headersSent) res.json(out ?? { ok: true });
         } catch (err) {
+            // Ошибка посреди потоковой отдачи файла: ответ уже начат, остаётся оборвать соединение
+            if (res.headersSent) {
+                console.error(`[admin ${req.method} ${req.path}]`, err.message);
+                return res.destroy();
+            }
             if (err instanceof AdminAuthError || err instanceof svc.AdminActionError) return res.status(err.status).json({ error: err.message });
             if (err instanceof ValidationError) return res.status(400).json({ error: err.message });
             console.error(`[admin ${req.method} ${req.path}]`, err);
@@ -109,6 +115,7 @@ export function adminRouter() {
         brandName: getSettings().brandName,
         supportMaxDays: svc.SUPPORT_MAX_EXTEND_DAYS,
         panelUrl: config.remnawave.url || null,
+        demo: config.admin.demoNo2fa,
     })));
 
     // --- настройка доступа по одноразовой ссылке ---
@@ -136,7 +143,7 @@ export function adminRouter() {
         res.send(svc.usersCsv({ q: req.query.q, filter: req.query.filter }));
     });
     api.post('/users/grant', wrap((req) => svc.grantAccess(req.admin, req.body ?? {})));
-    api.get('/users/:id', wrap((req) => svc.userDetails(req.params.id)));
+    api.get('/users/:id', wrap(async (req) => ({ ...(await svc.userDetails(req.params.id)), supportThreads: support.userThreads(Number(req.params.id)) })));
     api.post('/users/:id/extend', wrap((req) => svc.extendUser(req.admin, req.params.id, req.body ?? {})));
     api.post('/users/:id/disable', wrap((req) => svc.setEnabled(req.admin, req.params.id, false, req.body ?? {})));
     api.post('/users/:id/enable', wrap((req) => svc.setEnabled(req.admin, req.params.id, true, req.body ?? {})));
@@ -157,6 +164,26 @@ export function adminRouter() {
     api.post('/orders/:id/sync', wrap((req) => svc.syncOrder(req.admin, req.params.id)));
     api.get('/orders/:id/refund', wrap((req) => svc.refundPreview(req.admin, req.params.id)));
     api.post('/orders/:id/refund', wrap((req) => svc.refundOrder(req.admin, req.params.id, req.body ?? {})));
+
+    // --- обращения (обе роли) ---
+    api.get('/support', wrap((req) => support.listThreads({ status: req.query.status, q: req.query.q, page: num(req.query.page, 1) })));
+    api.get('/support/unread', wrap(() => ({ unread: support.unreadCount() })));
+    api.post('/support/demo-inbound', wrap((req) => support.demoInbound(req.body ?? {})));
+    // HTML письма — только внутри изолированного iframe: без скриптов, форм и внешних ресурсов
+    api.get('/support/messages/:id/html', wrap((req, res) => {
+        const html = support.messageHtml(req.params.id);
+        res.set({
+            'Content-Type': 'text/html; charset=utf-8',
+            'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; sandbox; frame-ancestors 'self'",
+            'X-Frame-Options': 'SAMEORIGIN',
+            'Referrer-Policy': 'no-referrer',
+        });
+        res.send(html);
+    }));
+    api.get('/support/attachments/:id', wrap((req, res) => support.streamAttachment(req.params.id, res)));
+    api.get('/support/:id', wrap((req) => support.threadDetails(req.params.id)));
+    api.post('/support/:id/reply', wrap((req) => support.reply(req.admin, req.params.id, req.body ?? {})));
+    api.post('/support/:id/status', wrap((req) => support.setStatus(req.admin, req.params.id, req.body ?? {})));
 
     // --- тарифы, приложения, настройки ---
     api.get('/plans', wrap(() => listPlans({ includeHidden: true })));

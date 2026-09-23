@@ -32,6 +32,8 @@ import {
     trialAvailable,
 } from './subscriptions.js';
 import { renderPage } from './pages.js';
+import { verifyWebhook } from './resend.js';
+import { enqueueInbound, startSupportJobs } from './support.js';
 
 const app = express();
 app.disable('x-powered-by');
@@ -71,6 +73,31 @@ app.post('/webhooks/remnawave', express.raw({ type: '*/*', limit: '1mb' }), asyn
         if (user?.id && hwidUserDevice?.hwid) {
             handleHwidDeviceAdded(user.id, hwidUserDevice.hwid).catch((err) => console.error('[webhook remnawave]', err.message));
         }
+    }
+});
+
+// Входящая почта поддержки (Resend Inbound, событие email.received). Подпись — по схеме Svix.
+app.post('/webhooks/resend-inbound', express.raw({ type: '*/*', limit: '256kb' }), (req, res) => {
+    const secret = config.support.inboundWebhookSecret;
+    if (!secret) return res.status(503).json({ error: 'webhook secret not configured' });
+    if (!Buffer.isBuffer(req.body) || !verifyWebhook(req.body, req.headers, secret)) {
+        return res.status(401).json({ error: 'bad signature' });
+    }
+
+    let event;
+    try {
+        event = JSON.parse(req.body.toString('utf8'));
+    } catch {
+        return res.status(400).json({ error: 'bad json' });
+    }
+    if (event.type !== 'email.received') return res.json({ ok: true, ignored: true });
+    try {
+        // Письмо ставится в очередь; повторная доставка того же email_id ничего не создаёт
+        enqueueInbound(event.data);
+        res.json({ ok: true });
+    } catch (err) {
+        console.error('[webhook resend-inbound]', err.message);
+        res.status(500).json({ error: 'temporary error' });
     }
 });
 
@@ -318,6 +345,7 @@ app.use((_req, res) => res.status(404).type('html').send(renderPage('404')));
 app.listen(config.port, () => {
     console.log(`[server] ${getSettings().brandName} слушает :${config.port} (${config.siteUrl})`);
     startBackgroundJobs();
+    startSupportJobs();
     if (config.admin.demoNo2fa) ensureDemoAdmin();
     ensureBootstrap();
     if (config.admin.path) console.log(`[server] админка: ${config.siteUrl}${config.admin.path}/`);

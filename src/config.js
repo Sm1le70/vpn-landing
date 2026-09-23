@@ -55,7 +55,18 @@ export const config = {
 
     mail: {
         resendApiKey: env('RESEND_API_KEY'),
+        // Только для демо и тестов: адрес имитации API Resend
+        resendApiUrl: env('RESEND_API_URL', 'https://api.resend.com').replace(/\/+$/, ''),
         from: env('MAIL_FROM', 'MyVPN <no-reply@example.com>'),
+    },
+
+    // Обращения в поддержку (Resend Inbound)
+    support: {
+        inboundWebhookSecret: env('RESEND_INBOUND_WEBHOOK_SECRET'),
+        // Пусто — "<название> <email поддержки из настроек>"
+        from: env('SUPPORT_FROM'),
+        // Пусто — уведомления о новых обращениях выключены
+        notifyEmail: env('SUPPORT_NOTIFY_EMAIL').toLowerCase(),
     },
 };
 
