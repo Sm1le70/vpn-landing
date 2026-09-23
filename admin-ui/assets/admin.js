@@ -506,20 +506,34 @@
         }
     };
 
-    function grantModal(email = '') {
-        modal({
+    async function grantModal(email = '') {
+        if (!state.plans.length) state.plans = await api('GET', 'plans');
+        const m = modal({
             title: 'Выдать доступ без оплаты',
-            subtitle: 'Если аккаунта с таким email нет — он будет создан. Если подписка уже есть — она продлится.',
+            subtitle: 'Если аккаунта с таким email нет — он будет создан. Если подписка уже есть — дни добавятся к текущему сроку.',
             body: `<label class="field"><span>Email</span><input type="email" name="email" required value="${esc(email)}"></label>
-                <label class="field"><span>Дней</span><input type="number" name="days" min="1" max="3650" value="30" required></label>
+                <label class="field"><span>Тариф</span><select name="planId">
+                    ${state.plans.map((p) => `<option value="${esc(p.id)}">${esc(p.title)} — ${p.days} дн.${p.hidden ? ' (скрыт)' : ''}</option>`).join('')}
+                    <option value="">Свой срок</option>
+                </select></label>
+                <label class="field" data-days hidden><span>Дней</span><input type="number" name="days" min="1" max="3650" value="30"></label>
                 ${reasonField()}${notifyField(true)}`,
             submitText: 'Выдать',
             onSubmit: async (form) => {
-                const r = await api('POST', 'users/grant', { email: form.email.value, days: Number(form.days.value), reason: form.reason.value, notify: form.notify.checked });
+                const planId = form.planId.value;
+                const r = await api('POST', 'users/grant', {
+                    email: form.email.value,
+                    planId: planId || undefined,
+                    days: planId ? undefined : Number(form.days.value),
+                    reason: form.reason.value,
+                    notify: form.notify.checked,
+                });
                 toast('Доступ выдан');
                 location.hash = `#/users/${r.userId}`;
             },
         });
+        const daysField = m.form.querySelector('[data-days]');
+        m.form.planId.onchange = (e) => (daysField.hidden = Boolean(e.target.value));
     }
 
     async function renderUserCard(view, id) {
@@ -558,6 +572,10 @@
                         ${admin && s ? (s.status === 'DISABLED' ? btn('enable', 'Включить') : btn('disable', 'Отключить', 'btn--danger')) : ''}
                         ${admin && (u.trialBlocked || !u.rwUserId) && u.trialUsedAt ? btn('trial', 'Сбросить пробный период') : ''}
                     </div>
+                    ${admin ? `<div class="actions" style="margin-top:10px">
+                        ${s ? btn('delete-sub', 'Удалить подписку', 'btn--danger') : ''}
+                        ${btn('delete-account', 'Удалить аккаунт', 'btn--danger')}
+                    </div>` : ''}
                     <dl class="kv" style="margin-top:16px">
                         <dt>Регистрация</dt><dd>${fmtDateTime(u.createdAt)}</dd>
                         <dt>Пробный период</dt><dd>${u.trialUsedAt ? `использован ${fmtDate(u.trialUsedAt)}` : 'не использован'}</dd>
@@ -646,6 +664,31 @@
                 onSubmit: async (f) => {
                     await api('POST', `users/${id}/enable`, { reason: f.reason.value, notify: f.notify.checked });
                     done('Пользователь включён');
+                },
+            }),
+            'delete-sub': () => modal({
+                title: 'Удалить подписку',
+                subtitle: 'Пользователь будет удалён из панели Remnawave, ссылка перестанет работать. Аккаунт на сайте и история платежей останутся: клиент сможет войти и оформить подписку заново.',
+                body: reasonField() + notifyField(false),
+                submitText: 'Удалить подписку',
+                danger: true,
+                onSubmit: async (f) => {
+                    await api('POST', `users/${id}/delete-subscription`, { reason: f.reason.value, notify: f.notify.checked });
+                    done('Подписка удалена');
+                },
+            }),
+            'delete-account': () => modal({
+                title: 'Удалить аккаунт',
+                subtitle: `Подписка удаляется из панели, email и вход в кабинет — тоже. Записи о платежах остаются без email: они нужны для отчётности и споров с банком. Действие необратимо.`,
+                body: `<div class="note note--bad">Для подтверждения введите email пользователя: <b>${esc(u.email)}</b></div>
+                    <label class="field"><span>Email</span><input type="text" name="confirmEmail" required autocomplete="off"></label>
+                    ${reasonField()}`,
+                submitText: 'Удалить аккаунт',
+                danger: true,
+                onSubmit: async (f) => {
+                    await api('POST', `users/${id}/delete-account`, { confirmEmail: f.confirmEmail.value, reason: f.reason.value });
+                    toast('Аккаунт удалён');
+                    location.hash = '#/users';
                 },
             }),
             trial: () => modal({

@@ -60,6 +60,7 @@ export const remnawave = {
     createUser: (body) => call('POST', '/api/users', body),
     updateUser: (body) => call('PATCH', '/api/users', body),
     getUser: (id) => call('GET', `/api/users/${id}`),
+    deleteUser: (id) => call('DELETE', `/api/users/${id}`),
     disableUser: (id) => call('POST', `/api/users/${id}/actions/disable`),
     enableUser: (id) => call('POST', `/api/users/${id}/actions/enable`),
     // Перевыпуск ссылки подписки: старая ссылка перестаёт работать

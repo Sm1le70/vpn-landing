@@ -1,6 +1,6 @@
 // Операции админки над пользователями и заказами. Каждое действие пишется в журнал.
 import { config } from '../config.js';
-import { db } from '../db.js';
+import { db, tx } from '../db.js';
 import { remnawave } from '../remnawave.js';
 import { checkRefund, refundTransaction } from '../platega.js';
 import { sendAccountNotice } from '../mailer.js';
@@ -57,6 +57,8 @@ export const ACTION_TITLES = {
     'user.revoke_link': 'Перевыпуск ссылки',
     'user.resend_link': 'Повторная отправка ссылки',
     'user.reset_trial': 'Сброс пробного периода',
+    'user.delete_subscription': 'Удаление подписки',
+    'user.delete_account': 'Удаление аккаунта',
     'order.sync': 'Сверка заказа с Platega',
     'order.refund': 'Возврат средств',
     'plans.update': 'Изменение тарифов',
@@ -150,11 +152,17 @@ export function extendUser(admin, userId, { days, reason, notify }) {
     });
 }
 
-export async function grantAccess(admin, { email, days, reason, notify }) {
+export async function grantAccess(admin, { email, days, planId, reason, notify }) {
     requireAdminRole(admin);
     const e = String(email ?? '').trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e)) throw new AdminActionError('Некорректный email');
-    const d = Number(days);
+    // Можно выдать доступ по тарифу — тогда срок берётся из него
+    let d = Number(days);
+    if (planId) {
+        const plan = getPlan(planId, { includeHidden: true });
+        if (!plan) throw new AdminActionError('Тариф не найден');
+        d = plan.days;
+    }
     if (!Number.isInteger(d) || d < 1 || d > 3650) throw new AdminActionError('Количество дней: от 1 до 3650');
     const r = requireReason(reason);
     const user = findOrCreateUser(e);
@@ -165,7 +173,7 @@ export async function grantAccess(admin, { email, days, reason, notify }) {
             text: `Вам предоставлен доступ на ${d} дн. — до ${fmtDate(rw.expireAt)}. Войдите в личный кабинет по этому email, чтобы подключиться.`,
             subscriptionUrl: rw.subscriptionUrl,
         });
-        audit(admin, 'user.grant', { targetType: 'user', targetId: user.id, targetLabel: user.email, reason: r, details: { days: d, before, after, notified } });
+        audit(admin, 'user.grant', { targetType: 'user', targetId: user.id, targetLabel: user.email, reason: r, details: { days: d, planId: planId ?? null, before, after, notified } });
         return { userId: user.id };
     });
 }
@@ -261,6 +269,70 @@ export function resetTrial(admin, userId, { reason }) {
         }
         audit(admin, 'user.reset_trial', { targetType: 'user', targetId: user.id, targetLabel: user.email, reason: r, details });
         return details;
+    });
+}
+
+// Удаляет пользователя в панели Remnawave. Аккаунт на сайте и история платежей остаются:
+// клиент сможет войти в кабинет и оформить подписку заново.
+export function deleteSubscription(admin, userId, { reason, notify }) {
+    requireAdminRole(admin);
+    const r = requireReason(reason);
+    const user = loadUser(userId);
+    return withUserLock(user.id, async () => {
+        const rw = await fetchRemnaUser(user);
+        if (rw) await remnawave.deleteUser(rw.id);
+        db.prepare(
+            `UPDATE users SET rw_user_id = NULL, rw_username = NULL, expire_at = NULL, rw_status = NULL,
+                              plan_kind = 'none', blocked = 0 WHERE id = ?`,
+        ).run(user.id);
+        db.prepare('DELETE FROM trial_hwids WHERE user_id = ?').run(user.id);
+        const notified = await notifyUser(user, notify, {
+            title: 'Подписка удалена',
+            text: 'Ваша подписка удалена, ссылка больше не работает. Оформить новую можно в личном кабинете.',
+        });
+        audit(admin, 'user.delete_subscription', {
+            targetType: 'user', targetId: user.id, targetLabel: user.email, reason: r,
+            details: { removedPanelUser: rw ? { id: rw.id, username: rw.username, expireAt: rw.expireAt } : null, notified },
+        });
+        return { ok: true };
+    });
+}
+
+// Маска email для журнала: an***@mail.ru
+const maskEmail = (email) => {
+    const [name, domain] = String(email).split('@');
+    return `${name.slice(0, 2)}***@${domain ?? ''}`;
+};
+
+// Полное удаление аккаунта: подписка удаляется в панели, персональные данные обезличиваются.
+// Записи о платежах остаются (без email) — они нужны для отчётности и разбора споров с банком.
+export function deleteAccount(admin, userId, { reason, confirmEmail }) {
+    requireAdminRole(admin);
+    const r = requireReason(reason);
+    const user = loadUser(userId);
+    if (String(confirmEmail ?? '').trim().toLowerCase() !== user.email) {
+        throw new AdminActionError('Для подтверждения введите email пользователя без ошибок');
+    }
+    return withUserLock(user.id, async () => {
+        const rw = await fetchRemnaUser(user);
+        if (rw) await remnawave.deleteUser(rw.id);
+        const anonymized = `deleted-${user.id}@deleted.invalid`;
+        tx(() => {
+            db.prepare('DELETE FROM sessions WHERE user_id = ?').run(user.id);
+            db.prepare('DELETE FROM login_codes WHERE email = ?').run(user.email);
+            db.prepare('DELETE FROM trial_hwids WHERE user_id = ?').run(user.id);
+            db.prepare(
+                `UPDATE users SET email = ?, rw_user_id = NULL, rw_username = NULL, expire_at = NULL, rw_status = NULL,
+                                  plan_kind = 'none', trial_used_at = NULL, trial_blocked = 0, blocked = 1 WHERE id = ?`,
+            ).run(anonymized, user.id);
+            // Email в журнале тоже обезличиваем, иначе удаление данных не полное
+            db.prepare("UPDATE audit_log SET target_label = ? WHERE target_type = 'user' AND target_id = ?").run(maskEmail(user.email), String(user.id));
+        });
+        audit(admin, 'user.delete_account', {
+            targetType: 'user', targetId: user.id, targetLabel: maskEmail(user.email), reason: r,
+            details: { removedPanelUser: rw ? { id: rw.id, username: rw.username } : null, ordersKept: db.prepare('SELECT COUNT(*) AS n FROM orders WHERE user_id = ?').get(user.id).n },
+        });
+        return { ok: true };
     });
 }
 

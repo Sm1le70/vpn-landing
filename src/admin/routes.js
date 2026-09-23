@@ -144,6 +144,8 @@ export function adminRouter() {
     api.post('/users/:id/revoke-link', wrap((req) => svc.revokeLink(req.admin, req.params.id, req.body ?? {})));
     api.post('/users/:id/resend-link', wrap((req) => svc.resendLink(req.admin, req.params.id, req.body ?? {})));
     api.post('/users/:id/reset-trial', wrap((req) => svc.resetTrial(req.admin, req.params.id, req.body ?? {})));
+    api.post('/users/:id/delete-subscription', wrap((req) => svc.deleteSubscription(req.admin, req.params.id, req.body ?? {})));
+    api.post('/users/:id/delete-account', wrap((req) => svc.deleteAccount(req.admin, req.params.id, req.body ?? {})));
 
     // --- платежи ---
     const orderFilters = (q) => ({ q: q.q, status: q.status, plan: q.plan, from: q.from, to: q.to });
