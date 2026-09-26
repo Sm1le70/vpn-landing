@@ -18,7 +18,8 @@ export const failNext = (match, mode = 'error', status = 500) => failures.push({
 export const fakes = {
     remnawave: { users: new Map(), devices: new Map(), nextId: 1, requests: [] },
     platega: { transactions: new Map(), refund: { supported: true, accepted: true, manualControlRequired: false }, requests: [] },
-    resend: { sent: [] },
+    // attachments: вложения входящих писем по `${emailId}/${attachmentId}` → { size, withLength }
+    resend: { sent: [], attachments: new Map() },
     telegram: { calls: [], nextTopic: 100, nextMessage: 1, deletedTopics: new Set() },
 };
 
@@ -32,6 +33,7 @@ export function resetFakes() {
         requests: [],
     });
     fakes.resend.sent = [];
+    fakes.resend.attachments = new Map();
     fakes.telegram.calls = [];
     fakes.telegram.deletedTopics = new Set();
 }
@@ -137,6 +139,25 @@ function resend(method, path, body) {
         return () => json({ id });
     }
     let m;
+    if ((m = path.match(/^\/emails\/receiving\/([\w-]+)\/attachments\/([\w-]+)$/))) {
+        const key = `${m[1]}/${m[2]}`;
+        return () => (fakes.resend.attachments.has(key) ? json({ id: m[2], download_url: `${HOSTS.resend}/files/${key}` }) : json({ message: 'not found' }, 404));
+    }
+    if ((m = path.match(/^\/files\/([\w-]+\/[\w-]+)$/))) {
+        const file = fakes.resend.attachments.get(m[1]);
+        if (!file) return () => json({ message: 'not found' }, 404);
+        // Поток по 1 МБ; withLength: false — без Content-Length, как у некоторых CDN
+        let left = file.size;
+        const stream = new ReadableStream({
+            pull(controller) {
+                if (left <= 0) return controller.close();
+                const n = Math.min(left, 1024 * 1024);
+                left -= n;
+                controller.enqueue(new Uint8Array(n));
+            },
+        });
+        return () => new Response(stream, { status: 200, headers: file.withLength ? { 'Content-Length': String(file.size) } : {} });
+    }
     if ((m = path.match(/^\/emails\/([\w-]+)$/))) {
         const email = fakes.resend.sent.find((e) => e.id === m[1]);
         return () => (email ? json({ ...email, message_id: `<${email.id}@resend.test>` }) : json({ message: 'not found' }, 404));
