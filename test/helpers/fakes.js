@@ -27,7 +27,7 @@ export const fakes = {
 export function resetFakes() {
     failures.length = 0;
     // nextId не сбрасывается: база общая на весь файл, и rw_user_id разных тестов не должны совпадать
-    Object.assign(fakes.remnawave, { users: new Map(), devices: new Map(), requests: [] });
+    Object.assign(fakes.remnawave, { users: new Map(), devices: new Map(), requests: [], listUnsupported: false });
     Object.assign(fakes.platega, {
         transactions: new Map(),
         refund: { supported: true, accepted: true, manualControlRequired: false },
@@ -65,10 +65,18 @@ export function addTransaction({ status = 'PENDING', amount = 199, currency = 'R
 
 const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
 
-function remnawave(method, path, body) {
+function remnawave(method, path, body, query) {
     const rw = fakes.remnawave;
     rw.requests.push({ method, path, body });
     let m;
+    if (method === 'GET' && path === '/api/users') {
+        // Список постранично: ?start=&size= → { users, total }; listUnsupported — панель без списка (400)
+        if (rw.listUnsupported) return () => json({ message: 'Bad request' }, 400);
+        const all = [...rw.users.values()];
+        const start = Number(query.get('start') ?? 0);
+        const size = Number(query.get('size') ?? 25);
+        return () => json({ response: { users: all.slice(start, start + size), total: all.length } });
+    }
     if (method === 'POST' && path === '/api/users') {
         const user = addRemnaUser({ status: 'ACTIVE', ...body, subscriptionUrl: `https://sub.test/${rw.nextId}` });
         return () => json({ response: user }, 201);
@@ -209,7 +217,7 @@ globalThis.fetch = async (input, init = {}) => {
     const failure = i >= 0 ? failures.splice(i, 1)[0] : null;
     if (failure?.mode === 'error') return json({ message: `fake: сбой ${route}` }, failure.status);
 
-    const respond = handler(method, url.pathname, body);
+    const respond = handler(method, url.pathname, body, url.searchParams);
     if (failure?.mode === 'lost-response') throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
     return respond();
 };

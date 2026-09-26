@@ -2,7 +2,7 @@
 import crypto from 'node:crypto';
 import { config } from './config.js';
 import { getSettings } from './settings.js';
-import { db } from './db.js';
+import { db, tx } from './db.js';
 import { remnawave, RemnawaveError, onUserResponse } from './remnawave.js';
 import { getTransaction } from './platega.js';
 import { sendSubscriptionReady } from './mailer.js';
@@ -287,7 +287,42 @@ export async function getSubscriptionInfo(user) {
 }
 
 // Обновление кэша срока/статуса (изменения, сделанные напрямую в панели Remnawave).
-async function refreshCachedSubscriptions() {
+// Список панели запрашивается страницами; если панель не отдаёт список — по одному пользователю.
+const LIST_PAGE_SIZE = 500;
+
+export async function refreshCachedSubscriptions() {
+    let panelUsers;
+    try {
+        panelUsers = await listAllRemnaUsers();
+    } catch (err) {
+        console.warn('[jobs] список пользователей панели не получен, обновляю по одному:', err.message);
+        return refreshCachedSubscriptionsOneByOne();
+    }
+    const ours = db.prepare('SELECT id, rw_user_id FROM users WHERE rw_user_id IS NOT NULL').all();
+    const update = db.prepare('UPDATE users SET expire_at = ?, rw_status = ? WHERE id = ?');
+    const markDeleted = db.prepare("UPDATE users SET rw_status = 'DELETED' WHERE id = ?");
+    tx(() => {
+        for (const u of ours) {
+            const rw = panelUsers.get(u.rw_user_id);
+            // Список получен целиком — пользователя, которого в нём нет, в панели удалили
+            if (!rw) markDeleted.run(u.id);
+            else if (rw.expireAt && rw.status) update.run(new Date(rw.expireAt).toISOString(), rw.status, u.id);
+        }
+    });
+}
+
+// Все пользователи панели: Map id → пользователь. Бросает ошибку, если хоть одна страница не получена.
+async function listAllRemnaUsers() {
+    const all = new Map();
+    for (let start = 0; ; start += LIST_PAGE_SIZE) {
+        const page = await remnawave.listUsers(start, LIST_PAGE_SIZE);
+        if (!Array.isArray(page?.users)) throw new Error('неожиданный ответ списка пользователей');
+        for (const u of page.users) if (typeof u.id === 'number') all.set(u.id, u);
+        if (page.users.length < LIST_PAGE_SIZE || start + LIST_PAGE_SIZE >= Number(page.total ?? 0)) return all;
+    }
+}
+
+async function refreshCachedSubscriptionsOneByOne() {
     const users = db.prepare('SELECT id, rw_user_id FROM users WHERE rw_user_id IS NOT NULL').all();
     for (const u of users) {
         try {
