@@ -466,7 +466,7 @@ scripts/demo.js       демо-режим с заглушками Platega, Remna
 scripts/demo-mail.js  имитация входящего письма в демо (npm run demo:mail)
 scripts/demo-tg.js    имитация сообщений боту и в группу в демо (npm run demo:tg)
 views/                страницы и документы
-public/assets/        CSS, JS кабинета
+public/assets/        CSS, JS кабинета, шрифт Manrope (fonts/, лицензия OFL) — сторонние ресурсы сайт не загружает
 config/*.json         начальные тарифы и приложения
 test/                 тесты (npm test), test/helpers/env.js — изолированное окружение
 ```
