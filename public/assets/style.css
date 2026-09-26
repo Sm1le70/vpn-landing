@@ -227,6 +227,11 @@ input[name=code] { font-size: 24px; letter-spacing: .4em; text-align: center; }
 .sub-stats b { font-size: 17px; }
 .sub-link { display: grid; grid-template-columns: 1fr auto; gap: 22px; align-items: start; }
 .copy-row { display: flex; gap: 8px; }
+.promo-row { display: flex; gap: 8px; margin: 14px 0 4px; }
+.promo-row input { flex: 1; min-width: 0; text-transform: uppercase; }
+.promo-status { margin: 4px 0 10px; }
+.promo-status--ok { color: var(--ok); }
+.promo-status--bad { color: var(--bad); }
 .copy-row input { font-family: ui-monospace, Consolas, monospace; font-size: 13px; min-width: 0; }
 .howto { padding-left: 20px; margin: 16px 0 0; color: #b4bdd0; font-size: 15px; }
 .howto li { padding: 3px 0; }

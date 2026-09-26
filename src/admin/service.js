@@ -98,6 +98,8 @@ export const ACTION_TITLES = {
     'order.refund': 'Возврат средств',
     'order.chargeback': 'Chargeback (оспаривание платежа)',
     'plans.update': 'Изменение тарифов',
+    'promo.create': 'Создание промокода',
+    'promo.update': 'Изменение промокода',
     'apps.update': 'Изменение приложений',
     'settings.update': 'Изменение настроек',
     'admin.invite': 'Приглашение администратора',
@@ -659,6 +661,8 @@ function withPlanTitle(o) {
         paidAt: o.paid_at,
         refundedAt: o.refunded_at,
         refundInfo: o.refund_info ? JSON.parse(o.refund_info) : null,
+        promoCode: o.promo_code,
+        priceBefore: o.price_before,
     };
 }
 
@@ -807,9 +811,9 @@ export function ordersCsv(filters) {
     const { where, params } = orderQuery(filters);
     const rows = db.prepare(`SELECT o.*, u.email FROM orders o JOIN users u ON u.id = o.user_id ${where} ORDER BY o.created_at`).all(...params);
     return toCsv(
-        ['Заказ', 'Дата', 'Email', 'Тариф', 'Дней', 'Сумма, ₽', 'Статус', 'Оплачен', 'Возврат', 'Транзакция Platega'],
+        ['Заказ', 'Дата', 'Email', 'Тариф', 'Дней', 'Сумма, ₽', 'Промокод', 'Цена без скидки, ₽', 'Статус', 'Оплачен', 'Возврат', 'Транзакция Platega'],
         rows.map((o) => [o.id, o.created_at, o.email, getPlan(o.plan_id, { includeHidden: true })?.title ?? o.plan_id, o.days, o.amount,
-            STATUS_TITLES[o.status] ?? o.status, o.paid_at ?? '', o.refunded_at ?? '', o.platega_tx_id ?? '']),
+            o.promo_code ?? '', o.price_before ?? '', STATUS_TITLES[o.status] ?? o.status, o.paid_at ?? '', o.refunded_at ?? '', o.platega_tx_id ?? '']),
     );
 }
 

@@ -308,6 +308,25 @@ db.exec(`
     );
     CREATE INDEX IF NOT EXISTS alerts_pending ON alerts(status, id);
     CREATE INDEX IF NOT EXISTS alerts_key ON alerts(dedup_key, created_at);
+
+    -- Промокоды (src/promo.js). Использования считаются по оплаченным заказам с этим кодом.
+    CREATE TABLE IF NOT EXISTS promo_codes (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        code        TEXT NOT NULL UNIQUE,
+        -- 'percent' | 'fixed' (рубли)
+        kind        TEXT NOT NULL,
+        value       REAL NOT NULL,
+        -- NULL — без лимита
+        max_uses    INTEGER,
+        -- JSON-массив ID тарифов; пустой — все тарифы
+        plan_ids    TEXT NOT NULL DEFAULT '[]',
+        valid_from  TEXT,
+        valid_until TEXT,
+        active      INTEGER NOT NULL DEFAULT 1,
+        note        TEXT,
+        created_by  INTEGER,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    );
 `);
 
 // Миграции существующих баз: добавляем недостающие колонки.
@@ -328,6 +347,9 @@ addColumn('orders', 'target_expire_at', 'TEXT');
 addColumn('orders', 'payment_expires_at', 'TEXT');
 // Первое оповещение об обращении в теме «Обращения»: остальные события приходят ответом на него
 addColumn('support_threads', 'tg_msg_id', 'INTEGER');
+// Промокод заказа и цена тарифа до скидки (amount — к оплате, со скидкой)
+addColumn('orders', 'promo_code', 'TEXT');
+addColumn('orders', 'price_before', 'REAL');
 // Проверка отправителя входящего письма по данным Resend (SPF, DKIM, DMARC): 'pass' | 'fail' | 'unknown'
 addColumn('support_messages', 'sender_auth', 'TEXT');
 addColumn('support_messages', 'sender_auth_details', 'TEXT');
