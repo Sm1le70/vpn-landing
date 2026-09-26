@@ -40,7 +40,7 @@
 - [x] **0.2. CI на GitHub Actions** — `chore/ci`
   - На push и PR: Node 22.13 и 24, `npm ci`, `npm test`, `npm run check-wording`.
   - Готово, когда: CI зелёный на PR.
-- [ ] **0.3. Тесты текущей денежной логики** — `chore/tests-money`
+- [x] **0.3. Тесты текущей денежной логики** — `chore/tests-money`
   - `markOrderPaid`, `applyPaidOrder` (создание, продление, повтор после таймаута), `syncOrderWithPlatega`, `refundOrder`, `changeDays`, `verifyLoginCode` (обычный и постоянный код).
   - Фиксируют текущее поведение; тесты на баги из фазы 1 добавляются в тех задачах.
 
