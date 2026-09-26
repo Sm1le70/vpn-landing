@@ -6,6 +6,7 @@ import { db } from './db.js';
 import { remnawave, RemnawaveError, onUserResponse } from './remnawave.js';
 import { getTransaction } from './platega.js';
 import { sendSubscriptionReady } from './mailer.js';
+import { isDisposableEmail } from './disposable.js';
 import { adminUserUrl, alert } from './alerts.js';
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
@@ -198,13 +199,20 @@ export async function syncOrderWithPlatega(order) {
 
 // ---------- Пробный период ----------
 
-export function trialAvailable(user) {
-    return getSettings().trialEnabled && !user.trial_used_at && user.plan_kind === 'none' && !user.rw_user_id;
-}
+// Пробный период положен аккаунту: включён, ещё не использовался, подписки не было
+const trialEligible = (user) => getSettings().trialEnabled && !user.trial_used_at && user.plan_kind === 'none' && !user.rw_user_id;
+
+export const trialAvailable = (user) => trialEligible(user) && !isDisposableEmail(user.email);
+
+// Пробный период был бы доступен, но почта одноразовая — кабинет объясняет, почему кнопки нет
+export const trialDisposable = (user) => trialEligible(user) && isDisposableEmail(user.email);
 
 export function startTrial(userId) {
     return withUserLock(userId, async () => {
         const user = getUserRow(userId);
+        if (isDisposableEmail(user.email)) {
+            throw new UserFacingError('Пробный период не предоставляется для временных почтовых адресов. Войдите с постоянной почтой или оформите подписку.');
+        }
         if (!trialAvailable(user)) throw new UserFacingError('Пробный период для этого аккаунта уже недоступен');
         const rwUser = await createRemnaUser(user, {
             expireAt: addDays(new Date(), getSettings().trialDays),
