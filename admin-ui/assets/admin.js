@@ -1159,6 +1159,8 @@
                 </div></div>
                 <div class="card"><h2>Подписка</h2><div class="form">
                     <div class="form-row">${numf('paidDeviceLimit', 'Лимит устройств (платная)', 0, 50, '0 — без ограничения. Применяется к новым оплатам и продлениям; больший индивидуальный лимит клиента при продлении сохраняется.')}</div>
+                    <label class="check"><input type="checkbox" name="remindersEnabled" ${s.remindersEnabled ? 'checked' : ''}> Напоминать об окончании подписки</label>
+                    <div class="form-row">${text('reminderDays', 'За сколько дней напоминать', 'Через запятую, например «3, 1». Письмо и сообщение в Telegram (если аккаунт привязан), с 9 до 21 по Москве. Пробный период — тоже.')}</div>
                     <label class="check"><input type="checkbox" name="trialEnabled" ${s.trialEnabled ? 'checked' : ''}> Пробный период включён</label>
                     <div class="form-row">${numf('trialDays', 'Дней пробного периода', 1, 30)}${numf('trialDeviceLimit', 'Устройств на пробном периоде', 1, 10)}</div>
                 </div></div>
@@ -1171,6 +1173,7 @@
             data.trialEnabled = f.trialEnabled.checked;
             data.telegramEmailNotify = f.telegramEmailNotify.checked;
             data.telegramAlerts = f.telegramAlerts.checked;
+            data.remindersEnabled = f.remindersEnabled.checked;
             for (const k of ['paidDeviceLimit', 'trialDays', 'trialDeviceLimit']) data[k] = Number(data[k]);
             try {
                 await api('PUT', 'settings', data);

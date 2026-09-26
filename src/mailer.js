@@ -50,6 +50,25 @@ export function sendSubscriptionReady(to, { subscriptionUrl, expireAt, isTrial }
     });
 }
 
+// Напоминание об окончании подписки (или пробного периода)
+export function sendExpiryReminder(to, { expireAt, isTrial, daysBefore }) {
+    const until = new Date(expireAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', timeZone: 'Europe/Moscow' });
+    const what = isTrial ? 'Пробный период' : 'Подписка';
+    const when = daysBefore <= 1 ? 'завтра' : `через ${daysBefore} ${daysBefore < 5 ? 'дня' : 'дней'}`;
+    const title = `${what} заканчивается ${when}`;
+    const text = isTrial
+        ? `Пробный период ${getSettings().brandName} действует до ${until}. Чтобы продолжить пользоваться сервисом, выберите тариф в личном кабинете — ссылка на подписку останется прежней.`
+        : `Подписка ${getSettings().brandName} действует до ${until}. Продлите её в личном кабинете — дни добавятся к текущему сроку, ссылка на подписку останется прежней.`;
+    return send({
+        to,
+        subject: `${title} — ${getSettings().brandName}`,
+        text: `${text}\n\nЛичный кабинет: ${config.siteUrl}/cabinet`,
+        html: layout(`<p style="margin:0 0 8px;font-size:16px;font-weight:700">${esc(title)}</p>
+<p style="margin:0 0 16px;color:#c5cde0">${esc(text)}</p>
+<p style="margin:20px 0 0"><a href="${esc(config.siteUrl)}/cabinet" style="display:inline-block;background:#4f8cff;color:#fff;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:700">${isTrial ? 'Выбрать тариф' : 'Продлить подписку'}</a></p>`),
+    });
+}
+
 // Уведомление о действии администратора (продление, отключение, новая ссылка и т.п.).
 export function sendAccountNotice(to, { title, text, subscriptionUrl }) {
     const linkText = subscriptionUrl ? `\n\nСсылка на подписку:\n${subscriptionUrl}` : '';

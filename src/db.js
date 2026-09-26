@@ -308,6 +308,16 @@ db.exec(`
     );
     CREATE INDEX IF NOT EXISTS alerts_pending ON alerts(status, id);
     CREATE INDEX IF NOT EXISTS alerts_key ON alerts(dedup_key, created_at);
+
+    -- Отправленные напоминания об окончании подписки: одно напоминание на дату окончания и порог (дней).
+    -- После продления дата окончания другая — напоминания начинаются заново.
+    CREATE TABLE IF NOT EXISTS expiry_reminders (
+        user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        expire_at   TEXT NOT NULL,
+        days_before INTEGER NOT NULL,
+        sent_at     TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (user_id, expire_at, days_before)
+    );
 `);
 
 // Миграции существующих баз: добавляем недостающие колонки.

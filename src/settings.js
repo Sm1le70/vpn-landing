@@ -33,6 +33,8 @@ const FIELDS = {
     trialDeviceLimit: { type: 'int', label: 'Устройств на пробном периоде', min: 1, max: 10 },
     telegramEmailNotify: { type: 'bool', label: 'Оповещения об обращениях в Telegram' },
     telegramAlerts: { type: 'bool', label: 'Служебные алерты в Telegram' },
+    remindersEnabled: { type: 'bool', label: 'Напоминания об окончании подписки' },
+    reminderDays: { type: 'string', label: 'За сколько дней напоминать', max: 20, required: true, pattern: /^\s*\d{1,2}(\s*,\s*\d{1,2})*\s*$/ },
 };
 
 const defaults = () => ({
@@ -47,6 +49,8 @@ const defaults = () => ({
     trialDeviceLimit: config.trial.deviceLimit,
     telegramEmailNotify: true,
     telegramAlerts: true,
+    remindersEnabled: true,
+    reminderDays: '3, 1',
 });
 
 let settingsCache = null;

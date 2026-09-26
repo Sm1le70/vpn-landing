@@ -226,6 +226,23 @@ async function sendToClient(chatId, text) {
     }
 }
 
+// Сообщение клиенту от бота во все его привязанные Telegram (кроме отключённых командой /ban).
+// Возвращает число чатов, куда отправлено. Клиент остановил бота — не ошибка.
+export async function messageLinkedClients(userId, text) {
+    if (!telegramEnabled()) return 0;
+    const clients = db.prepare('SELECT tg_user_id FROM tg_clients WHERE user_id = ? AND banned = 0').all(userId);
+    let sent = 0;
+    for (const c of clients) {
+        try {
+            await sendToClient(c.tg_user_id, text);
+            sent += 1;
+        } catch (err) {
+            console.warn(`[telegram] сообщение клиенту ${c.tg_user_id} не отправлено: ${err.message}`);
+        }
+    }
+    return sent;
+}
+
 async function handlePrivate(msg) {
     const from = msg.from;
     if (!from || from.is_bot) return;

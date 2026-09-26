@@ -39,6 +39,7 @@ import { telegramEnabled, telegramWebhookSecret } from './telegram.js';
 import { createLinkUrl, enqueueUpdate, startTelegramSupport, supportBotUsername } from './tgsupport.js';
 import { startEmailNotify } from './tgnotify.js';
 import { startAlerts } from './alerts.js';
+import { startReminders } from './reminders.js';
 import { applyChargeback } from './admin/service.js';
 import { every, staleJobs } from './jobs.js';
 
@@ -470,6 +471,7 @@ const server = app.listen(config.port, () => {
     startTelegramSupport();
     startEmailNotify();
     startAlerts();
+    startReminders();
     if (config.admin.demoNo2fa) ensureDemoAdmin();
     ensureBootstrap();
     if (config.admin.path) console.log(`[server] админка: ${config.siteUrl}${config.admin.path}/`);
