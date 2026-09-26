@@ -69,6 +69,19 @@ export function htmlToText(html) {
         .trim();
 }
 
+// ---------- Проверка отправителя ----------
+
+// По результатам, которые Resend вычисляет при приёме письма (authentication: spf, dkim, dmarc).
+// Адрес в поле From подтверждает только DMARC (он проверяет, что домен From совпадает с проверенным отправителем):
+// 'pass' — DMARC пройден; 'fail' — DMARC не пройден или не прошли и SPF, и DKIM; 'unknown' — данных нет
+// или у домена нет DMARC. Неподтверждённое письмо не привязывается к аккаунту и к переписке по email и теме.
+export function senderAuth(authentication) {
+    const a = authentication ?? {};
+    if (a.dmarc === 'pass') return 'pass';
+    if (a.dmarc === 'fail' || (a.spf === 'fail' && a.dkim === 'fail')) return 'fail';
+    return 'unknown';
+}
+
 // ---------- Защита от петель ----------
 
 function ownAddresses() {
@@ -108,7 +121,7 @@ export function enqueueInbound(data) {
 
 const processing = new Set();
 
-async function processInboxItem(emailId) {
+export async function processInboxItem(emailId) {
     if (processing.has(emailId)) return;
     processing.add(emailId);
     try {
@@ -146,7 +159,8 @@ async function processInboxItem(emailId) {
             return;
         }
 
-        const result = storeInbound(emailId, meta, full, from, header);
+        const auth = senderAuth(full?.authentication);
+        const result = storeInbound(emailId, meta, full, from, header, auth);
         db.prepare("UPDATE support_inbox SET status = 'done', last_error = NULL WHERE email_id = ?").run(emailId);
         if (result) {
             // Оповещение в теме «Обращения» группы поддержки Telegram (если включено в настройках)
@@ -160,6 +174,7 @@ async function processInboxItem(emailId) {
                 text: result.text,
                 attachments: result.attachments,
                 contentMissing: !full,
+                senderAuth: auth,
                 statusTitle: STATUS_TITLES[status] ?? status,
             });
         }
@@ -172,7 +187,9 @@ async function processInboxItem(emailId) {
     }
 }
 
-function findThreadId(fromEmail, subjectNorm, messageIds) {
+// bySubject — искать и по email и теме (только для подтверждённого отправителя: иначе чужое письмо
+// с подделанным From попало бы в переписку клиента)
+function findThreadId(fromEmail, subjectNorm, messageIds, { bySubject = true } = {}) {
     if (messageIds.length) {
         const ids = messageIds.slice(-50);
         const hit = db
@@ -180,12 +197,14 @@ function findThreadId(fromEmail, subjectNorm, messageIds) {
             .get(...ids);
         if (hit) return hit.thread_id;
     }
+    if (!bySubject) return undefined;
     return db
         .prepare("SELECT id FROM support_threads WHERE email = ? AND subject_norm = ? AND status != 'closed' ORDER BY last_message_at DESC LIMIT 1")
         .get(fromEmail, subjectNorm)?.id;
 }
 
-function storeInbound(emailId, meta, full, from, header) {
+function storeInbound(emailId, meta, full, from, header, auth) {
+    const verified = auth === 'pass';
     const subject = String(full?.subject ?? meta.subject ?? '').slice(0, 500);
     const subjectNorm = normalizeSubject(subject);
     const inReplyTo = header('in-reply-to');
@@ -203,9 +222,10 @@ function storeInbound(emailId, meta, full, from, header) {
 
     return tx(() => {
         if (db.prepare('SELECT 1 FROM support_messages WHERE resend_id = ?').get(emailId)) return null;
-        const userId = db.prepare('SELECT id FROM users WHERE email = ?').get(from.email)?.id ?? null;
+        // К аккаунту письмо привязывается, только если отправитель подтверждён
+        const userId = verified ? db.prepare('SELECT id FROM users WHERE email = ?').get(from.email)?.id ?? null : null;
 
-        let threadId = findThreadId(from.email, subjectNorm, extractMessageIds(inReplyTo, references));
+        let threadId = findThreadId(from.email, subjectNorm, extractMessageIds(inReplyTo, references), { bySubject: verified });
         let isNew = false;
         let reopened = false;
         if (threadId) {
@@ -213,14 +233,15 @@ function storeInbound(emailId, meta, full, from, header) {
             reopened = t.status === 'closed';
             db.prepare(
                 `UPDATE support_threads SET status = CASE WHEN status = 'new' THEN 'new' ELSE 'waiting' END, unread = 1,
-                 user_id = COALESCE(user_id, ?), last_message_at = ?, updated_at = datetime('now') WHERE id = ?`,
-            ).run(userId, createdAt, threadId);
+                 user_id = COALESCE(user_id, ?), sender_verified = CASE WHEN ? THEN 1 ELSE sender_verified END,
+                 last_message_at = ?, updated_at = datetime('now') WHERE id = ?`,
+            ).run(userId, verified ? 1 : 0, createdAt, threadId);
         } else {
             isNew = true;
             threadId = Number(
                 db
-                    .prepare('INSERT INTO support_threads (email, user_id, subject, subject_norm, last_message_at) VALUES (?, ?, ?, ?, ?)')
-                    .run(from.email, userId, subject, subjectNorm, createdAt).lastInsertRowid,
+                    .prepare('INSERT INTO support_threads (email, user_id, subject, subject_norm, last_message_at, sender_verified) VALUES (?, ?, ?, ?, ?, ?)')
+                    .run(from.email, userId, subject, subjectNorm, createdAt, verified ? 1 : 0).lastInsertRowid,
             );
         }
 
@@ -228,13 +249,14 @@ function storeInbound(emailId, meta, full, from, header) {
             db
                 .prepare(
                     `INSERT INTO support_messages (thread_id, direction, resend_id, message_id, in_reply_to, references_hdr, from_addr, from_name,
-                        to_addrs, cc_addrs, subject, text, html, truncated, content_missing, created_at)
-                     VALUES (?, 'in', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        to_addrs, cc_addrs, subject, text, html, truncated, content_missing, created_at, sender_auth, sender_auth_details)
+                     VALUES (?, 'in', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 )
                 .run(
                     threadId, emailId, messageId, inReplyTo || null, references || null, from.email, from.name,
                     addressList(full?.to ?? meta.to).join(', '), addressList(full?.cc ?? meta.cc).join(', ') || null,
                     subject, text, html, truncated, full ? 0 : 1, createdAt,
+                    auth, full?.authentication ? JSON.stringify(full.authentication) : null,
                 ).lastInsertRowid,
         );
         let attachmentsSaved = 0;

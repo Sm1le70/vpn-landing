@@ -28,6 +28,8 @@ const publicThread = (t) => ({
     lastMessageAt: t.last_message_at,
     createdAt: t.created_at,
     messagesCount: t.messages_count,
+    // null — обращение до появления проверки отправителя
+    senderVerified: t.sender_verified == null ? null : Boolean(t.sender_verified),
 });
 
 // ---------- Список ----------
@@ -107,14 +109,20 @@ export function threadDetails(id) {
             hasHtml: Boolean(m.html),
             truncated: Boolean(m.truncated),
             contentMissing: Boolean(m.content_missing),
+            senderAuth: m.sender_auth,
             adminLogin: m.admin_login,
             createdAt: m.created_at,
             attachments: attachments
                 .filter((a) => a.message_id === m.id)
                 .map((a) => ({ id: a.id, filename: a.filename, contentType: a.content_type, size: a.size, inline: a.content_disposition === 'inline' })),
         }));
-    const user = t.user_id ? db.prepare('SELECT id, email FROM users WHERE id = ?').get(t.user_id) : db.prepare('SELECT id, email FROM users WHERE email = ?').get(t.email);
-    return { thread: { ...publicThread(t), unread: false }, messages, user: user ?? null, statusTitles: STATUS_TITLES };
+    const byEmail = () => db.prepare('SELECT id, email FROM users WHERE email = ?').get(t.email) ?? null;
+    let user = t.user_id ? db.prepare('SELECT id, email FROM users WHERE id = ?').get(t.user_id) : null;
+    // Отправитель не подтверждён: аккаунт с таким email показываем отдельно, как «возможно», а не как владельца переписки
+    let possibleUser = null;
+    if (!user && t.sender_verified === 0) possibleUser = byEmail();
+    else if (!user) user = byEmail();
+    return { thread: { ...publicThread(t), unread: false }, messages, user: user ?? null, possibleUser, statusTitles: STATUS_TITLES };
 }
 
 // HTML письма для iframe. Изоляцию обеспечивают заголовки, выставляемые в маршруте.
