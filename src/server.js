@@ -28,7 +28,7 @@ import {
     markOrderPaid,
     startBackgroundJobs,
     startTrial,
-    syncOrderWithPlatega,
+    syncOrderForClient,
     trialAvailable,
     trialDisposable,
 } from './subscriptions.js';
@@ -402,7 +402,7 @@ app.get(
         if (!order) return res.status(404).json({ error: 'Заказ не найден' });
         if (order.status === 'pending') {
             try {
-                order = await syncOrderWithPlatega(order);
+                order = await syncOrderForClient(order);
             } catch (err) {
                 console.error(`[order ${order.id}] сверка:`, err.message);
             }
@@ -424,7 +424,7 @@ app.post(
         if (!order) return res.status(404).json({ error: 'Заказ не найден' });
         if (order.status === 'pending') {
             try {
-                order = await syncOrderWithPlatega(order);
+                order = await syncOrderForClient(order);
             } catch (err) {
                 console.error(`[order ${order.id}] сверка:`, err.message);
             }

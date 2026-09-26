@@ -98,7 +98,7 @@
   - `GET /healthz`: БД отвечает, фоновые задачи живы (время последнего прохода). `HEALTHCHECK` в Dockerfile.
 - [x] **3.2. Фоновые задачи без наложения** — `fix/jobs-overlap`
   - Флаг «выполняется» для `retryPaid`, `pollTrialDevices`, `refreshCachedSubscriptions` и задач поддержки.
-- [ ] **3.3. Троттлинг сверки при ожидании оплаты** — `fix/order-poll-throttle`
+- [x] **3.3. Троттлинг сверки при ожидании оплаты** — `fix/order-poll-throttle`
   - `/api/orders/:id` и `/api/orders/:id/pay`: запрос в Platega по одному заказу не чаще раза в 10 с, иначе ответ из БД.
 - [ ] **3.4. Кэш данных подписки для кабинета** — `perf/subscription-cache`
   - Кэш `getSubscriptionInfo` на 30–60 с по пользователю; сброс после оплаты, пробного периода и действий админа. Убирает двойной запрос из `/api/me` и `qr.svg`.
