@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 export const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const envFile = path.join(ROOT_DIR, '.env');
-if (fs.existsSync(envFile)) process.loadEnvFile(envFile);
+// В тестах .env не читаем: настоящие ключи не должны попасть в тестовый запуск
+if (process.env.NODE_ENV !== 'test' && fs.existsSync(envFile)) process.loadEnvFile(envFile);
 
 const env = (name, fallback = '') => (process.env[name] ?? fallback).trim();
 const bool = (name, fallback) => {
