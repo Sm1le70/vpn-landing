@@ -114,9 +114,12 @@ async function notifyUser(user, notify, payload) {
 // ---------- Действия с подпиской ----------
 
 // days > 0 — продление, days < 0 — сокращение. Если подписки нет, она создаётся (если allowCreate).
-async function changeDays(user, days, { allowCreate = true } = {}) {
+// Продление пробного клиента переводит его в платные: лимит устройств платный, проверка устройств
+// пробного периода больше не действует, а подписка, отключённая этой проверкой, включается.
+async function changeDays(staleUser, days, { allowCreate = true } = {}) {
+    const user = getUserRow(staleUser.id);
     let rw = await fetchRemnaUser(user);
-    const before = rw ? { expireAt: rw.expireAt, status: rw.status } : null;
+    const before = rw ? { expireAt: rw.expireAt, status: rw.status, planKind: user.plan_kind } : null;
     if (!rw) {
         if (days < 0) throw new AdminActionError('У пользователя нет подписки — сокращать нечего');
         // Создание подписки без оплаты — выдача доступа, это право только администратора
@@ -133,9 +136,17 @@ async function changeDays(user, days, { allowCreate = true } = {}) {
         if (next < minNext) next = minNext;
         const patch = { id: rw.id, expireAt: next.toISOString() };
         if (rw.status === 'EXPIRED' && days > 0) patch.status = 'ACTIVE';
+        const fromTrial = days > 0 && user.plan_kind === 'trial';
+        if (fromTrial) {
+            patch.hwidDeviceLimit = getSettings().paidDeviceLimit;
+            // Отключена проверкой устройств пробного периода, а не администратором — включаем
+            if (rw.status === 'DISABLED' && user.trial_blocked && !user.blocked) patch.status = 'ACTIVE';
+        }
         rw = await remnawave.updateUser(patch);
+        if (fromTrial) db.prepare("UPDATE users SET plan_kind = 'paid', trial_blocked = 0 WHERE id = ?").run(user.id);
     }
-    return { rw, before, after: { expireAt: rw.expireAt, status: rw.status } };
+    const planKind = getUserRow(user.id).plan_kind;
+    return { rw, before, after: { expireAt: rw.expireAt, status: rw.status, planKind } };
 }
 
 export function extendUser(admin, userId, { days, reason, notify }) {
