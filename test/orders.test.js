@@ -264,3 +264,33 @@ describe('лимит устройств при оплате (задача 1.2)',
         assert.equal(await renew(0), 0);
     });
 });
+
+describe('сверка по запросу клиента (задача 3.3)', () => {
+    test('в Platega — не чаще раза в 10 секунд на заказ', async (t) => {
+        const { syncOrderForClient } = await import('../src/subscriptions.js');
+        t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+        const order = createOrder(createUser().id, { txId: addTransaction({ status: 'PENDING' }) });
+        const checks = () => fakes.platega.requests.filter((r) => r.path === `/transaction/${order.platega_tx_id}`).length;
+
+        for (let i = 0; i < 4; i++) await syncOrderForClient(getOrder(order.id)); // опрос каждые 3 с
+        assert.equal(checks(), 1);
+        t.mock.timers.tick(10_000);
+        await syncOrderForClient(getOrder(order.id));
+        assert.equal(checks(), 2);
+    });
+
+    test('оплаченный заказ не сверяется', async () => {
+        const { syncOrderForClient } = await import('../src/subscriptions.js');
+        const order = createOrder(createUser().id, { status: 'applied', txId: addTransaction({ status: 'CONFIRMED' }) });
+        await syncOrderForClient(order);
+        assert.equal(fakes.platega.requests.length, 0);
+    });
+
+    test('разные заказы сверяются независимо', async () => {
+        const { syncOrderForClient } = await import('../src/subscriptions.js');
+        const a = createOrder(createUser().id, { txId: addTransaction({ status: 'CONFIRMED' }) });
+        const b = createOrder(createUser().id, { txId: addTransaction({ status: 'CONFIRMED' }) });
+        assert.equal((await syncOrderForClient(a)).status, 'applied');
+        assert.equal((await syncOrderForClient(b)).status, 'applied');
+    });
+});

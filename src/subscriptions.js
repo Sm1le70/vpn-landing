@@ -197,6 +197,20 @@ export async function syncOrderWithPlatega(order) {
     return getOrderRow(order.id);
 }
 
+// Сверка по запросу клиента (страница ожидания оплаты опрашивает статус каждые 3 с):
+// в Platega — не чаще раза в CLIENT_SYNC_MIN_MS на заказ, в остальное время — статус из базы.
+// Callback Platega меняет статус сразу, так что клиент не ждёт дольше.
+const CLIENT_SYNC_MIN_MS = 10_000;
+const lastClientSync = new Map();
+
+export async function syncOrderForClient(order) {
+    const now = Date.now();
+    if (order.status !== 'pending' || now - (lastClientSync.get(order.id) ?? 0) < CLIENT_SYNC_MIN_MS) return order;
+    lastClientSync.set(order.id, now);
+    for (const [id, at] of lastClientSync) if (now - at > 10 * 60_000) lastClientSync.delete(id);
+    return syncOrderWithPlatega(order);
+}
+
 // ---------- Пробный период ----------
 
 // Пробный период положен аккаунту: включён, ещё не использовался, подписки не было
