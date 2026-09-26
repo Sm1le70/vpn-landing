@@ -67,7 +67,12 @@ const subjectLine = (subject) => `Тема: ${esc(subject || '(без темы)'
 const adminUrl = (threadId) => (config.admin.path ? `${config.siteUrl}${config.admin.path}/#/support/${threadId}` : null);
 
 // Письмо клиента. kind: 'new' — новое обращение, 'client' — письмо в открытое, 'reopen' — письмо в закрытое.
-export function notifyInbound({ threadId, kind, email, name, subject, text, attachments, contentMissing, statusTitle }) {
+const SENDER_WARNING = {
+    fail: '⚠️ Отправитель не прошёл проверку подлинности (DMARC) — письмо, вероятно, подделано. Не меняйте аккаунт по этому письму.',
+    unknown: '⚠️ Отправитель не подтверждён (у домена нет DMARC или проверки нет) — к аккаунту не привязано.',
+};
+
+export function notifyInbound({ threadId, kind, email, name, subject, text, attachments, contentMissing, senderAuth, statusTitle }) {
     const head = {
         new: `📩 <b>Новое обращение №${threadId}</b>`,
         client: `🔁 <b>№${threadId}: новое письмо клиента</b>`,
@@ -75,6 +80,7 @@ export function notifyInbound({ threadId, kind, email, name, subject, text, atta
     }[kind];
     const lines = [head, `От: ${who(email, name)}`, subjectLine(subject)];
     if (kind !== 'new' && statusTitle) lines.push(`Статус: ${esc(statusTitle)}`);
+    if (SENDER_WARNING[senderAuth]) lines.push(SENDER_WARNING[senderAuth]);
     let out = lines.join('\n') + quote(text);
     if (attachments) out += `\n📎 Вложений: ${attachments}`;
     if (contentMissing) {
