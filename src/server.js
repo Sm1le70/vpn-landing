@@ -40,6 +40,7 @@ import { createLinkUrl, enqueueUpdate, startTelegramSupport, supportBotUsername 
 import { startEmailNotify } from './tgnotify.js';
 import { startAlerts } from './alerts.js';
 import { applyChargeback } from './admin/service.js';
+import { every, staleJobs } from './jobs.js';
 
 const app = express();
 app.disable('x-powered-by');
@@ -70,6 +71,22 @@ app.use((_req, res, next) => {
     // Браузер запомнит, что сайт только на https (полгода). Для http (локальный запуск, демо) не отправляется.
     if (config.isHttps) res.set('Strict-Transport-Security', 'max-age=15552000');
     next();
+});
+
+// ---------- Проверка работоспособности (Docker HEALTHCHECK, мониторинг) ----------
+
+// 200 — база отвечает и фоновые задачи не зависли, иначе 503. Наружу — только названия зависших задач.
+app.get('/healthz', (_req, res) => {
+    let dbOk = true;
+    try {
+        db.prepare('SELECT 1').get();
+    } catch (err) {
+        dbOk = false;
+        console.error('[healthz] база:', err.message);
+    }
+    const stale = staleJobs();
+    const ok = dbOk && stale.length === 0;
+    res.status(ok ? 200 : 503).set('Cache-Control', 'no-store').json({ ok, db: dbOk ? 'ok' : 'error', staleJobs: stale });
 });
 
 // ---------- Вебхуки (до json-парсера: Remnawave подписывает сырое тело) ----------
@@ -204,12 +221,12 @@ function rateLimit(key, max, windowMs) {
     hits.set(key, arr);
     return arr.length <= max;
 }
-setInterval(() => {
+every('cleanup', 10 * 60 * 1000, () => {
     const now = Date.now();
     for (const [k, arr] of hits) if (arr.every((t) => now - t > 60 * 60 * 1000)) hits.delete(k);
     cleanupExpired();
     cleanupAdminAuth();
-}, 10 * 60 * 1000).unref();
+});
 
 const wrap = (fn) => async (req, res) => {
     try {

@@ -231,7 +231,8 @@ sudo shred -u /root/age-key.txt
 ### Полезные команды
 
 ```bash
-docker compose ps                                  # статус
+docker compose ps                                  # статус: healthy — сайт и фоновые задачи работают
+curl -s 127.0.0.1:3000/healthz                     # {"ok":true,...}; 503 и staleJobs — какая фоновая задача зависла
 docker compose logs -f vpn-landing                 # логи в реальном времени
 docker compose restart                             # перезапуск
 docker compose exec vpn-landing npm run admin:list # администраторы

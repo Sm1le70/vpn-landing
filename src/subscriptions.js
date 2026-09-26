@@ -7,6 +7,7 @@ import { remnawave, RemnawaveError, onUserResponse } from './remnawave.js';
 import { getTransaction } from './platega.js';
 import { sendSubscriptionReady } from './mailer.js';
 import { isDisposableEmail } from './disposable.js';
+import { every } from './jobs.js';
 import { adminUserUrl, alert } from './alerts.js';
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
@@ -400,11 +401,7 @@ export async function reconcileOrders({ slow = false } = {}) {
 
 export function startBackgroundJobs() {
     let tick = 0;
-    const retryPaid = () => reconcileOrders({ slow: tick++ % SLOW_SYNC_EVERY === 0 });
-    const safe = (fn) => () => fn().catch((err) => console.error('[jobs]', err));
-    setInterval(safe(retryPaid), 60_000).unref();
-    setInterval(safe(pollTrialDevices), 5 * 60_000).unref();
-    setInterval(safe(refreshCachedSubscriptions), 30 * 60_000).unref();
-    setTimeout(safe(refreshCachedSubscriptions), 30_000).unref();
-    setTimeout(safe(retryPaid), 5_000).unref();
+    every('orders', 60_000, () => reconcileOrders({ slow: tick++ % SLOW_SYNC_EVERY === 0 }), { firstDelayMs: 5_000 });
+    every('trial-devices', 5 * 60_000, pollTrialDevices);
+    every('subscriptions-cache', 30 * 60_000, refreshCachedSubscriptions, { firstDelayMs: 30_000 });
 }

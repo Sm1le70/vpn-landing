@@ -94,9 +94,9 @@
 
 ## Фаза 3. Надёжность и производительность
 
-- [ ] **3.1. Healthcheck** — `feat/healthz`
+- [x] **3.1. Healthcheck** — `feat/healthz`
   - `GET /healthz`: БД отвечает, фоновые задачи живы (время последнего прохода). `HEALTHCHECK` в Dockerfile.
-- [ ] **3.2. Фоновые задачи без наложения** — `fix/jobs-overlap`
+- [x] **3.2. Фоновые задачи без наложения** — `fix/jobs-overlap`
   - Флаг «выполняется» для `retryPaid`, `pollTrialDevices`, `refreshCachedSubscriptions` и задач поддержки.
 - [ ] **3.3. Троттлинг сверки при ожидании оплаты** — `fix/order-poll-throttle`
   - `/api/orders/:id` и `/api/orders/:id/pay`: запрос в Platega по одному заказу не чаще раза в 10 с, иначе ответ из БД.
