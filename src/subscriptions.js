@@ -290,47 +290,85 @@ async function refreshCachedSubscriptions() {
 
 // ---------- Фоновые задачи ----------
 
-export function startBackgroundJobs() {
-    const retryPaid = async () => {
-        const paid = db.prepare("SELECT id FROM orders WHERE status = 'paid'").all();
-        for (const o of paid) await applyPaidOrder(o.id);
+// Неоплаченные заказы младше этого срока сверяются с Platega каждую минуту, старше — раз в 15 минут
+const FAST_SYNC_HOURS = 2;
+export const SLOW_SYNC_EVERY = 15;
+// Сколько после окончания срока платёжной ссылки заказ ещё сверяется: Platega может подтвердить оплату с задержкой
+const PAY_LINK_GRACE_MS = 60 * 60_000;
 
-        const pending = db
+const sqlTime = (s) => new Date(`${s.replace(' ', 'T')}Z`);
+
+// Ещё можно ждать оплату: платёжная ссылка жива (с запасом), а если её срок неизвестен — заказ младше ORDER_PAY_HOURS
+export function awaitingPayment(order, now = Date.now()) {
+    if (order.payment_expires_at) return new Date(order.payment_expires_at).getTime() + PAY_LINK_GRACE_MS > now;
+    return now - sqlTime(order.created_at) < ORDER_PAY_HOURS * 60 * 60_000;
+}
+
+async function syncAll(orders) {
+    for (const o of orders) {
+        try {
+            await syncOrderWithPlatega(o);
+        } catch (err) {
+            console.error(`[order ${o.id}] сверка с Platega:`, err.message);
+        }
+    }
+}
+
+// Сверка заказов: выдача оплаченных, сверка неоплаченных с Platega, закрытие неоплаченных за сутки.
+// slow — ещё и неоплаченные старше FAST_SYNC_HOURS, по которым оплата пока возможна (callback мог потеряться).
+export async function reconcileOrders({ slow = false } = {}) {
+    const paid = db.prepare("SELECT id FROM orders WHERE status = 'paid'").all();
+    for (const o of paid) await applyPaidOrder(o.id);
+
+    await syncAll(
+        db
             .prepare(
                 `SELECT * FROM orders WHERE status = 'pending' AND platega_tx_id IS NOT NULL
-                 AND created_at < datetime('now', '-3 minutes') AND created_at > datetime('now', '-2 hours')
+                 AND created_at < datetime('now', '-3 minutes') AND created_at > datetime('now', '-${FAST_SYNC_HOURS} hours')
                  ORDER BY created_at DESC LIMIT 20`,
             )
-            .all();
-        for (const o of pending) {
-            try {
-                await syncOrderWithPlatega(o);
-            } catch (err) {
-                console.error(`[order ${o.id}] сверка с Platega:`, err.message);
-            }
-        }
+            .all(),
+    );
 
-        // Заказы, не оплаченные за сутки, закрываем. Если оплата всё же придёт позже,
-        // callback примет и отменённый заказ (см. markOrderPaid).
-        const stale = db
-            .prepare(
-                `SELECT * FROM orders WHERE status = 'pending'
-                 AND created_at <= datetime('now', '-${ORDER_PAY_HOURS} hours') ORDER BY created_at LIMIT 20`,
-            )
-            .all();
-        for (const o of stale) {
-            try {
-                if ((await syncOrderWithPlatega(o)).status !== 'pending') continue;
-            } catch (err) {
-                console.error(`[order ${o.id}] сверка с Platega:`, err.message);
-                // Сверка не прошла: если транзакции нет в Platega (404) или заказу больше недели — закрываем,
-                // иначе повторим позже (недельный предел не даёт таким заказам бесконечно занимать очередь)
-                const weekOld = Date.now() - new Date(o.created_at.replace(' ', 'T') + 'Z') > 7 * DAY_MS;
-                if (o.platega_tx_id && !/→ 404/.test(err.message) && !weekOld) continue;
-            }
-            db.prepare("UPDATE orders SET status = 'canceled', error = COALESCE(error, 'не оплачен вовремя') WHERE id = ? AND status = 'pending'").run(o.id);
+    if (slow) {
+        await syncAll(
+            db
+                .prepare(
+                    `SELECT * FROM orders WHERE status = 'pending' AND platega_tx_id IS NOT NULL
+                     AND created_at <= datetime('now', '-${FAST_SYNC_HOURS} hours') AND created_at > datetime('now', '-${ORDER_PAY_HOURS} hours')
+                     ORDER BY created_at DESC`,
+                )
+                .all()
+                .filter((o) => awaitingPayment(o))
+                .slice(0, 50),
+        );
+    }
+
+    // Заказы, не оплаченные за сутки, закрываем. Если оплата всё же придёт позже,
+    // callback примет и отменённый заказ (см. markOrderPaid).
+    const stale = db
+        .prepare(
+            `SELECT * FROM orders WHERE status = 'pending'
+             AND created_at <= datetime('now', '-${ORDER_PAY_HOURS} hours') ORDER BY created_at LIMIT 20`,
+        )
+        .all();
+    for (const o of stale) {
+        try {
+            if ((await syncOrderWithPlatega(o)).status !== 'pending') continue;
+        } catch (err) {
+            console.error(`[order ${o.id}] сверка с Platega:`, err.message);
+            // Сверка не прошла: если транзакции нет в Platega (404) или заказу больше недели — закрываем,
+            // иначе повторим позже (недельный предел не даёт таким заказам бесконечно занимать очередь)
+            const weekOld = Date.now() - sqlTime(o.created_at) > 7 * DAY_MS;
+            if (o.platega_tx_id && !/→ 404/.test(err.message) && !weekOld) continue;
         }
-    };
+        db.prepare("UPDATE orders SET status = 'canceled', error = COALESCE(error, 'не оплачен вовремя') WHERE id = ? AND status = 'pending'").run(o.id);
+    }
+}
+
+export function startBackgroundJobs() {
+    let tick = 0;
+    const retryPaid = () => reconcileOrders({ slow: tick++ % SLOW_SYNC_EVERY === 0 });
     const safe = (fn) => () => fn().catch((err) => console.error('[jobs]', err));
     setInterval(safe(retryPaid), 60_000).unref();
     setInterval(safe(pollTrialDevices), 5 * 60_000).unref();
