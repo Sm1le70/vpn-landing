@@ -258,3 +258,12 @@ describe('продление пробного клиента (задача 1.1)'
         assert.equal(rw.status, 'DISABLED');
     });
 });
+
+describe('лимит устройств при переводе пробного в платные (задача 1.2)', () => {
+    test('индивидуальный лимит пробного клиента больше стандартного сохраняется', async () => {
+        const rw = addRemnaUser({ hwidDeviceLimit: 5 });
+        const user = createUser({ rw_user_id: rw.id, plan_kind: 'trial' });
+        await extendUser(ADMIN, user.id, { days: 30, reason: 'проверка' });
+        assert.equal(rw.hwidDeviceLimit, 5);
+    });
+});
