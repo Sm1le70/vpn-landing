@@ -32,6 +32,21 @@ export const SUPPORT_MAX_EXTEND_DAYS = 7;
 
 const fmtDate = (d) => new Date(d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
 
+// Сутки в статистике и фильтрах — московские (UTC+3, без перехода на летнее время); в базе время в UTC
+const DAY_MS = 86_400_000;
+const MSK_OFFSET_MS = 3 * 3_600_000;
+const sqlUtc = (ms) => new Date(ms).toISOString().replace('T', ' ').slice(0, 19);
+// Московская дата (YYYY-MM-DD) момента ms
+const mskDate = (ms) => new Date(ms + MSK_OFFSET_MS).toISOString().slice(0, 10);
+// Начало московских суток daysAgo дней назад — в UTC, в формате SQLite
+const mskDayStart = (daysAgo = 0) => sqlUtc(Date.parse(`${mskDate(Date.now() - daysAgo * DAY_MS)}T00:00:00+03:00`));
+// Граница фильтра по дате из формы (YYYY-MM-DD, московские сутки) или null, если дата некорректна
+function mskDateBound(value, time) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value ?? ''))) return null;
+    const ms = Date.parse(`${value}T${time}+03:00`);
+    return Number.isNaN(ms) || mskDate(ms) !== value ? null : sqlUtc(ms);
+}
+
 // ---------- Журнал ----------
 
 export function audit(admin, action, { targetType = null, targetId = null, targetLabel = null, reason = null, details = null } = {}) {
@@ -690,13 +705,15 @@ function orderQuery({ q, status, plan, from, to }) {
         where.push('o.plan_id = ?');
         params.push(plan);
     }
-    if (from) {
+    const fromUtc = mskDateBound(from, '00:00:00');
+    if (fromUtc) {
         where.push('o.created_at >= ?');
-        params.push(`${from} 00:00:00`);
+        params.push(fromUtc);
     }
-    if (to) {
+    const toUtc = mskDateBound(to, '23:59:59');
+    if (toUtc) {
         where.push('o.created_at <= ?');
-        params.push(`${to} 23:59:59`);
+        params.push(toUtc);
     }
     return { where: where.length ? `WHERE ${where.join(' AND ')}` : '', params };
 }
@@ -776,13 +793,14 @@ export function ordersCsv(filters) {
 // ---------- Статистика ----------
 
 export function stats() {
+    // Сегодня — с полуночи по Москве, неделя и месяц — последние 7 и 30 суток
     const revenue = (days) =>
         db
             .prepare(
                 `SELECT COALESCE(SUM(amount), 0) AS sum, COUNT(*) AS n FROM orders
-                 WHERE status IN ('applied', 'paid') AND paid_at >= datetime('now', ?)`,
+                 WHERE status IN ('applied', 'paid') AND paid_at >= ?`,
             )
-            .get(days === 0 ? 'start of day' : `-${days} days`);
+            .get(days === 0 ? mskDayStart(0) : sqlUtc(Date.now() - days * DAY_MS));
     const nowIso = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
     const active = db
         .prepare(
@@ -802,15 +820,15 @@ export function stats() {
 
     const dailyRows = db
         .prepare(
-            `SELECT date(paid_at) AS day, SUM(amount) AS sum, COUNT(*) AS n FROM orders
-             WHERE status IN ('applied', 'paid') AND paid_at >= date('now', '-29 days')
-             GROUP BY date(paid_at)`,
+            `SELECT date(paid_at, '+3 hours') AS day, SUM(amount) AS sum, COUNT(*) AS n FROM orders
+             WHERE status IN ('applied', 'paid') AND paid_at >= ?
+             GROUP BY date(paid_at, '+3 hours')`,
         )
-        .all();
+        .all(mskDayStart(29));
     const byDay = new Map(dailyRows.map((r) => [r.day, r]));
     const daily = [];
     for (let i = 29; i >= 0; i--) {
-        const day = new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10);
+        const day = mskDate(Date.now() - i * DAY_MS);
         daily.push({ day, sum: byDay.get(day)?.sum ?? 0, count: byDay.get(day)?.n ?? 0 });
     }
 
