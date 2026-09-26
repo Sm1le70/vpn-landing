@@ -30,6 +30,7 @@ import {
     startTrial,
     syncOrderWithPlatega,
     trialAvailable,
+    trialDisposable,
 } from './subscriptions.js';
 import { renderPage } from './pages.js';
 import { verifyWebhook } from './resend.js';
@@ -287,6 +288,7 @@ app.get(
         res.json({
             email: req.user.email,
             trialAvailable: trialAvailable(req.user),
+            trialDisposable: trialDisposable(req.user),
             subscription,
             subscriptionError,
             orders,

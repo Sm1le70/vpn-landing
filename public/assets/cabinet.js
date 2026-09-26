@@ -263,9 +263,14 @@
 
     function renderTrial() {
         const { trial } = state.config;
-        const show = state.me.trialAvailable && trial.enabled;
+        const show = (state.me.trialAvailable || state.me.trialDisposable) && trial.enabled;
         $('trial-card').hidden = !show;
         if (!show) return;
+        $('btn-trial').hidden = !state.me.trialAvailable;
+        if (state.me.trialDisposable) {
+            $('trial-text').textContent = 'Пробный период не предоставляется для временных почтовых адресов. Войдите с постоянной почтой или оформите подписку ниже.';
+            return;
+        }
         $('trial-text').textContent =
             `${trial.days} ${plural(trial.days, ['день', 'дня', 'дней'])} бесплатно, ${trial.deviceLimit} ${plural(trial.deviceLimit, ['устройство', 'устройства', 'устройств'])}. ` +
             'Предоставляется один раз на аккаунт и устройство.';
