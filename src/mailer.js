@@ -4,6 +4,12 @@ import { getSettings } from './settings.js';
 import { resend, resendEnabled } from './resend.js';
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const plural = (n, [one, few, many]) => {
+    const m10 = n % 10, m100 = n % 100;
+    if (m10 === 1 && m100 !== 11) return one;
+    if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
+    return many;
+};
 
 // Возвращает { id } письма в Resend (null, если ключ не задан и письмо выведено в консоль).
 async function send({ to, subject, text, html, from = config.mail.from, headers }) {
@@ -54,7 +60,7 @@ export function sendSubscriptionReady(to, { subscriptionUrl, expireAt, isTrial }
 export function sendExpiryReminder(to, { expireAt, isTrial, daysBefore }) {
     const until = new Date(expireAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', timeZone: 'Europe/Moscow' });
     const what = isTrial ? 'Пробный период' : 'Подписка';
-    const when = daysBefore <= 1 ? 'завтра' : `через ${daysBefore} ${daysBefore < 5 ? 'дня' : 'дней'}`;
+    const when = daysBefore <= 1 ? 'завтра' : `через ${daysBefore} ${plural(daysBefore, ['день', 'дня', 'дней'])}`;
     const title = `${what} заканчивается ${when}`;
     const text = isTrial
         ? `Пробный период ${getSettings().brandName} действует до ${until}. Чтобы продолжить пользоваться сервисом, выберите тариф в личном кабинете — ссылка на подписку останется прежней.`

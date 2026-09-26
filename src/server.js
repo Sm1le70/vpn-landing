@@ -47,6 +47,7 @@ import { applyPromo } from './promo.js';
 import { startReminders } from './reminders.js';
 import { applyChargeback } from './admin/service.js';
 import { every, staleJobs } from './jobs.js';
+import { cleanupRateLimits, rateLimit } from './ratelimit.js';
 
 const app = express();
 app.disable('x-powered-by');
@@ -232,18 +233,8 @@ app.use('/api', (req, res, next) => {
     next();
 });
 
-// Простой лимит запросов в памяти.
-const hits = new Map();
-function rateLimit(key, max, windowMs) {
-    const now = Date.now();
-    const arr = (hits.get(key) ?? []).filter((t) => now - t < windowMs);
-    arr.push(now);
-    hits.set(key, arr);
-    return arr.length <= max;
-}
 every('cleanup', 10 * 60 * 1000, () => {
-    const now = Date.now();
-    for (const [k, arr] of hits) if (arr.every((t) => now - t > 60 * 60 * 1000)) hits.delete(k);
+    cleanupRateLimits();
     cleanupExpired();
     cleanupAdminAuth();
 });
