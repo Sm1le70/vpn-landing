@@ -54,6 +54,14 @@ function baseUserFields() {
     return fields;
 }
 
+// Лимит устройств платной подписки с учётом текущего: индивидуальный лимит, выданный администратором,
+// не уменьшается, «без лимита» (0) сохраняется. Лимит меньше стандартного (например, пробный) поднимается.
+export function paidDeviceLimitFor(currentLimit) {
+    const standard = getSettings().paidDeviceLimit;
+    if (standard === 0 || currentLimit === 0) return 0;
+    return Math.max(Number(currentLimit) || 0, standard);
+}
+
 export async function createRemnaUser(user, { expireAt, deviceLimit, note }) {
     const rwUser = await remnawave.createUser({
         ...baseUserFields(),
@@ -140,7 +148,7 @@ export function applyPaidOrder(orderId) {
                         id: rwUser.id,
                         status: 'ACTIVE',
                         expireAt,
-                        hwidDeviceLimit: getSettings().paidDeviceLimit,
+                        hwidDeviceLimit: paidDeviceLimitFor(rwUser.hwidDeviceLimit),
                     });
                 }
             }

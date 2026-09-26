@@ -15,6 +15,7 @@ import {
     fetchRemnaUser,
     findOrCreateUser,
     getUserRow,
+    paidDeviceLimitFor,
     syncOrderWithPlatega,
     withUserLock,
 } from '../subscriptions.js';
@@ -138,7 +139,7 @@ async function changeDays(staleUser, days, { allowCreate = true } = {}) {
         if (rw.status === 'EXPIRED' && days > 0) patch.status = 'ACTIVE';
         const fromTrial = days > 0 && user.plan_kind === 'trial';
         if (fromTrial) {
-            patch.hwidDeviceLimit = getSettings().paidDeviceLimit;
+            patch.hwidDeviceLimit = paidDeviceLimitFor(rw.hwidDeviceLimit);
             // Отключена проверкой устройств пробного периода, а не администратором — включаем
             if (rw.status === 'DISABLED' && user.trial_blocked && !user.blocked) patch.status = 'ACTIVE';
         }

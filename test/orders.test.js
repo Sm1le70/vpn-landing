@@ -211,3 +211,24 @@ describe('syncOrderWithPlatega', () => {
         assert.equal(getOrder(order.id).status, 'pending');
     });
 });
+
+describe('лимит устройств при оплате (задача 1.2)', () => {
+    const renew = async (currentLimit) => {
+        const rw = addRemnaUser({ hwidDeviceLimit: currentLimit });
+        const user = createUser({ rw_user_id: rw.id, plan_kind: 'paid' });
+        await applyPaidOrder(createOrder(user.id, { status: 'paid' }).id);
+        return rw.hwidDeviceLimit;
+    };
+
+    test('индивидуальный лимит больше стандартного сохраняется', async () => {
+        assert.equal(await renew(5), 5);
+    });
+
+    test('лимит меньше стандартного поднимается до стандартного', async () => {
+        assert.equal(await renew(1), 3);
+    });
+
+    test('«без лимита» (0) сохраняется', async () => {
+        assert.equal(await renew(0), 0);
+    });
+});
