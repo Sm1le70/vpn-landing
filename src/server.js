@@ -40,6 +40,7 @@ import { createLinkUrl, enqueueUpdate, startTelegramSupport, supportBotUsername 
 import { startEmailNotify } from './tgnotify.js';
 import { startAlerts } from './alerts.js';
 import { applyPromo } from './promo.js';
+import { startReminders } from './reminders.js';
 import { applyChargeback } from './admin/service.js';
 import { every, staleJobs } from './jobs.js';
 
@@ -493,6 +494,7 @@ const server = app.listen(config.port, () => {
     startTelegramSupport();
     startEmailNotify();
     startAlerts();
+    startReminders();
     if (config.admin.demoNo2fa) ensureDemoAdmin();
     ensureBootstrap();
     if (config.admin.path) console.log(`[server] админка: ${config.siteUrl}${config.admin.path}/`);
