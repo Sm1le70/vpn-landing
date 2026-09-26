@@ -257,9 +257,13 @@ app.get(
             subscriptionError = true;
         }
         const orders = db
-            .prepare('SELECT id, plan_id, amount, status, created_at, paid_at FROM orders WHERE user_id = ? ORDER BY created_at DESC LIMIT 20')
+            .prepare('SELECT id, plan_id, amount, status, created_at, paid_at, payment_url, payment_expires_at FROM orders WHERE user_id = ? ORDER BY created_at DESC LIMIT 20')
             .all(req.user.id)
-            .map((o) => ({ ...o, planTitle: getPlan(o.plan_id, { includeHidden: true })?.title ?? o.plan_id }));
+            .map(({ payment_url, payment_expires_at, ...o }) => ({
+                ...o,
+                planTitle: getPlan(o.plan_id, { includeHidden: true })?.title ?? o.plan_id,
+                canPay: o.status === 'pending' && paymentLinkAlive({ payment_url, payment_expires_at }),
+            }));
         res.json({
             email: req.user.email,
             trialAvailable: trialAvailable(req.user),
@@ -330,14 +334,19 @@ app.post(
             plan.price,
         );
         try {
-            const { transactionId, paymentUrl } = await createPayment({
+            const { transactionId, paymentUrl, expiresAt } = await createPayment({
                 orderId,
                 amount: plan.price,
                 description: `Подписка ${getSettings().brandName}: ${plan.title}`,
                 userId: req.user.id,
                 email: req.user.email,
             });
-            db.prepare('UPDATE orders SET platega_tx_id = ?, payment_url = ? WHERE id = ?').run(transactionId, paymentUrl, orderId);
+            db.prepare('UPDATE orders SET platega_tx_id = ?, payment_url = ?, payment_expires_at = ? WHERE id = ?').run(
+                transactionId,
+                paymentUrl,
+                expiresAt,
+                orderId,
+            );
             res.json({ orderId, paymentUrl });
         } catch (err) {
             db.prepare("UPDATE orders SET status = 'canceled', error = ? WHERE id = ?").run(String(err.message).slice(0, 500), orderId);
@@ -360,6 +369,32 @@ app.get(
             }
         }
         res.json({ id: order.id, status: order.status, planTitle: getPlan(order.plan_id, { includeHidden: true })?.title, amount: order.amount });
+    }),
+);
+
+// Ссылку Platega можно открыть снова, пока не истёк её срок (если Platega его не сообщила — в пределах ORDER_PAY_HOURS)
+const paymentLinkAlive = (order) =>
+    Boolean(order.payment_url) && (!order.payment_expires_at || new Date(order.payment_expires_at) > new Date());
+
+// Повторный переход к оплате неоплаченного заказа (если пользователь ушёл со страницы Platega)
+app.post(
+    '/api/orders/:id/pay',
+    requireUser,
+    wrap(async (req, res) => {
+        let order = db.prepare('SELECT * FROM orders WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+        if (!order) return res.status(404).json({ error: 'Заказ не найден' });
+        if (order.status === 'pending') {
+            try {
+                order = await syncOrderWithPlatega(order);
+            } catch (err) {
+                console.error(`[order ${order.id}] сверка:`, err.message);
+            }
+        }
+        if (order.status === 'paid' || order.status === 'applied') return res.json({ status: order.status });
+        if (order.status !== 'pending' || !paymentLinkAlive(order)) {
+            return res.status(409).json({ error: 'Срок оплаты этого заказа истёк. Выберите тариф и оформите новый платёж.' });
+        }
+        res.json({ status: order.status, paymentUrl: order.payment_url });
     }),
 );
 

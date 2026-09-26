@@ -28,6 +28,14 @@ async function call(method, apiPath, body) {
     return data;
 }
 
+// expiresIn приходит как «ЧЧ:ММ:СС» (срок жизни платёжной ссылки); без него — null
+function parseExpiresIn(value) {
+    const m = /^(\d+):(\d{2}):(\d{2})$/.exec(String(value ?? ''));
+    if (!m) return null;
+    const ms = ((Number(m[1]) * 60 + Number(m[2])) * 60 + Number(m[3])) * 1000;
+    return new Date(Date.now() + ms).toISOString();
+}
+
 // Платёжная ссылка без заданного метода: способ оплаты клиент выбирает на форме Platega.
 export async function createPayment({ orderId, amount, description, userId, email }) {
     const data = await call('POST', '/v2/transaction/process', {
@@ -41,7 +49,7 @@ export async function createPayment({ orderId, amount, description, userId, emai
     });
     const paymentUrl = data.url ?? data.redirect;
     if (!data.transactionId || !paymentUrl) throw new Error(`Platega: неожиданный ответ ${JSON.stringify(data)}`);
-    return { transactionId: data.transactionId, paymentUrl };
+    return { transactionId: data.transactionId, paymentUrl, expiresAt: parseExpiresIn(data.expiresIn) };
 }
 
 export const getTransaction = (id) => call('GET', `/transaction/${encodeURIComponent(id)}`);

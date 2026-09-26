@@ -312,10 +312,34 @@
         $('orders-body').innerHTML = orders
             .map(
                 (o) => `<tr><td>${new Date(o.created_at.replace(' ', 'T') + 'Z').toLocaleDateString('ru-RU')}</td><td>${esc(o.planTitle)}</td>` +
-                    `<td>${rub(o.amount)}</td><td>${esc(ORDER_STATUS[o.status] || o.status)}</td></tr>`,
+                    `<td>${rub(o.amount)}</td><td>${esc(ORDER_STATUS[o.status] || o.status)}` +
+                    (o.canPay ? ` <button class="btn btn--ghost btn--small" type="button" data-pay="${esc(o.id)}">Оплатить</button>` : '') +
+                    '</td></tr>',
             )
             .join('');
     }
+
+    // Вернуться к оплате заказа, если пользователь ушёл со страницы оплаты
+    $('orders-body').addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-pay]');
+        if (!btn) return;
+        const orderId = btn.dataset.pay;
+        busy(btn, true, 'Открываем…');
+        try {
+            const { paymentUrl } = await api('POST', `/api/orders/${encodeURIComponent(orderId)}/pay`);
+            if (paymentUrl) {
+                location.href = paymentUrl;
+                return;
+            }
+            // Заказ уже оплачен — показываем результат, как при возврате с платёжной страницы
+            history.replaceState(null, '', `/cabinet?order=${encodeURIComponent(orderId)}`);
+            params.delete('failed');
+            watchOrder(orderId);
+        } catch (err) {
+            banner('bad', esc(err.message));
+            await load();
+        }
+    });
 
     $('form-buy').addEventListener('submit', async (e) => {
         e.preventDefault();

@@ -10,6 +10,9 @@ import { sendSubscriptionReady } from './mailer.js';
 export const DAY_MS = 24 * 60 * 60 * 1000;
 export const addDays = (date, days) => new Date(date.getTime() + days * DAY_MS);
 
+// Сколько часов неоплаченный заказ можно оплатить из кабинета; после этого фоновая задача его закрывает.
+export const ORDER_PAY_HOURS = 24;
+
 // Все операции над одним пользователем выполняются последовательно,
 // чтобы вебхук, фоновая проверка и запрос из кабинета не продлили подписку дважды.
 const userLocks = new Map();
@@ -283,6 +286,27 @@ export function startBackgroundJobs() {
             } catch (err) {
                 console.error(`[order ${o.id}] сверка с Platega:`, err.message);
             }
+        }
+
+        // Заказы, не оплаченные за сутки, закрываем. Если оплата всё же придёт позже,
+        // callback примет и отменённый заказ (см. markOrderPaid).
+        const stale = db
+            .prepare(
+                `SELECT * FROM orders WHERE status = 'pending'
+                 AND created_at <= datetime('now', '-${ORDER_PAY_HOURS} hours') ORDER BY created_at LIMIT 20`,
+            )
+            .all();
+        for (const o of stale) {
+            try {
+                if ((await syncOrderWithPlatega(o)).status !== 'pending') continue;
+            } catch (err) {
+                console.error(`[order ${o.id}] сверка с Platega:`, err.message);
+                // Сверка не прошла: если транзакции нет в Platega (404) или заказу больше недели — закрываем,
+                // иначе повторим позже (недельный предел не даёт таким заказам бесконечно занимать очередь)
+                const weekOld = Date.now() - new Date(o.created_at.replace(' ', 'T') + 'Z') > 7 * DAY_MS;
+                if (o.platega_tx_id && !/→ 404/.test(err.message) && !weekOld) continue;
+            }
+            db.prepare("UPDATE orders SET status = 'canceled', error = COALESCE(error, 'не оплачен вовремя') WHERE id = ? AND status = 'pending'").run(o.id);
         }
     };
     const safe = (fn) => () => fn().catch((err) => console.error('[jobs]', err));
