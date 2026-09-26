@@ -109,7 +109,7 @@ h1, h2, h3, h4 { line-height: 1.2; margin: 0 0 .6em; letter-spacing: -.01em; }
 .dot { width: 10px; height: 10px; border-radius: 50%; }
 .dot--ok { background: var(--ok); box-shadow: 0 0 0 5px rgba(52, 211, 153, .15); }
 .cf-meter { height: 8px; border-radius: 99px; background: var(--surface-2); margin: 20px 0; overflow: hidden; }
-.cf-meter span { display: block; height: 100%; background: var(--grad); border-radius: inherit; }
+.cf-meter span { display: block; width: 86%; height: 100%; background: var(--grad); border-radius: inherit; }
 .cf-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .cf-stats div { background: var(--surface-2); border-radius: 12px; padding: 12px; text-align: center; }
 .cf-stats b { display: block; font-size: 17px; }
