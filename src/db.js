@@ -328,6 +328,11 @@ addColumn('orders', 'target_expire_at', 'TEXT');
 addColumn('orders', 'payment_expires_at', 'TEXT');
 // Первое оповещение об обращении в теме «Обращения»: остальные события приходят ответом на него
 addColumn('support_threads', 'tg_msg_id', 'INTEGER');
+// Проверка отправителя входящего письма по данным Resend (SPF, DKIM, DMARC): 'pass' | 'fail' | 'unknown'
+addColumn('support_messages', 'sender_auth', 'TEXT');
+addColumn('support_messages', 'sender_auth_details', 'TEXT');
+// Переписка начата подтверждённым отправителем (1) или нет (0); NULL — обращения до появления проверки
+addColumn('support_threads', 'sender_verified', 'INTEGER');
 // Сброс доступа из консоли: включить отключённого администратора после завершения сброса
 addColumn('admin_setup_tokens', 'enable_admin', 'INTEGER NOT NULL DEFAULT 0');
 db.exec('CREATE INDEX IF NOT EXISTS users_expire ON users(expire_at)');

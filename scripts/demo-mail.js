@@ -1,5 +1,6 @@
 // Демо: имитация входящего письма в поддержку (работает при запущенном npm run demo).
-// npm run demo:mail -- --from client@example.com --subject "Вопрос" --text "Текст письма" [--reply-to "<message-id>"]
+// npm run demo:mail -- --from client@example.com --subject "Вопрос" --text "Текст письма" [--reply-to "<message-id>"] [--dmarc fail|none]
+// --dmarc: проверка отправителя — fail (подделка), none (у домена нет DMARC); по умолчанию pass
 import { parseArgs } from 'node:util';
 
 const { values } = parseArgs({
@@ -8,6 +9,7 @@ const { values } = parseArgs({
         subject: { type: 'string', default: 'Вопрос по подписке' },
         text: { type: 'string', default: 'Здравствуйте! Не получается подключиться, подскажите, что делать?' },
         'reply-to': { type: 'string' },
+        dmarc: { type: 'string', default: 'pass' },
     },
 });
 
@@ -16,7 +18,7 @@ try {
     const res = await fetch(`${mock}/demo/inbound`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from: values.from, subject: values.subject, text: values.text, inReplyTo: values['reply-to'] }),
+        body: JSON.stringify({ from: values.from, subject: values.subject, text: values.text, inReplyTo: values['reply-to'], dmarc: values.dmarc }),
     });
     console.log(res.ok ? `Письмо от ${values.from} отправлено в демо — откройте раздел «Обращения»` : `Ошибка: ${res.status} ${await res.text()}`);
 } catch {

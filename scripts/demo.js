@@ -68,7 +68,7 @@ async function sendCallback(t) {
     }).catch((err) => console.error('[demo] callback:', err.message));
 }
 
-function demoReceivedEmail({ from, subject, text, inReplyTo, extraHeaders }) {
+function demoReceivedEmail({ from, subject, text, inReplyTo, extraHeaders, dmarc = 'pass' }) {
     const raw = String(from || 'client@example.com').trim();
     const address = (raw.match(/<([^>]+)>/)?.[1] ?? raw).toLowerCase();
     const id = crypto.randomUUID();
@@ -94,6 +94,8 @@ function demoReceivedEmail({ from, subject, text, inReplyTo, extraHeaders }) {
         cc: [],
         reply_to: [],
         message_id: messageId,
+        // Проверка отправителя, как её считает Resend; dmarc: 'pass' | 'fail' | 'none' (у домена нет DMARC)
+        authentication: dmarc === 'none' ? { spf: 'pass', dkim: 'pass', dmarc: 'gray' } : { spf: dmarc, dkim: dmarc, dmarc },
         attachments: [{ id: crypto.randomUUID(), filename: 'demo.txt', content_type: 'text/plain', content_disposition: 'attachment', content_id: null, size: content.length, content }],
     };
 }

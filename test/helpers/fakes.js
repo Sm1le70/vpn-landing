@@ -18,7 +18,8 @@ export const failNext = (match, mode = 'error', status = 500) => failures.push({
 export const fakes = {
     remnawave: { users: new Map(), devices: new Map(), nextId: 1, requests: [] },
     platega: { transactions: new Map(), refund: { supported: true, accepted: true, manualControlRequired: false }, requests: [] },
-    resend: { sent: [] },
+    // received: письма, «принятые» Resend (GET /emails/receiving/:id), по email_id
+    resend: { sent: [], received: new Map() },
     telegram: { calls: [], nextTopic: 100, nextMessage: 1, deletedTopics: new Set() },
 };
 
@@ -32,6 +33,7 @@ export function resetFakes() {
         requests: [],
     });
     fakes.resend.sent = [];
+    fakes.resend.received = new Map();
     fakes.telegram.calls = [];
     fakes.telegram.deletedTopics = new Set();
 }
@@ -137,6 +139,10 @@ function resend(method, path, body) {
         return () => json({ id });
     }
     let m;
+    if ((m = path.match(/^\/emails\/receiving\/([\w-]+)$/))) {
+        const email = fakes.resend.received.get(m[1]);
+        return () => (email ? json(email) : json({ message: 'not found' }, 404));
+    }
     if ((m = path.match(/^\/emails\/([\w-]+)$/))) {
         const email = fakes.resend.sent.find((e) => e.id === m[1]);
         return () => (email ? json({ ...email, message_id: `<${email.id}@resend.test>` }) : json({ message: 'not found' }, 404));

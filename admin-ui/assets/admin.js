@@ -614,7 +614,7 @@
                 <h2>Обращения в поддержку</h2>
                 <div class="table-wrap"><table class="t"><thead><tr><th>Тема</th><th>Статус</th><th class="num">Писем</th><th>Последнее</th></tr></thead><tbody>
                 ${(d.supportThreads || []).map((x) => `<tr class="row-link ${x.unread ? 'unread' : ''}" data-href="#/support/${x.id}">
-                    <td>${esc(x.subject || '(без темы)')}</td><td>${supportPill(x.status)}</td><td class="num">${x.messagesCount}</td>
+                    <td>${esc(x.subject || '(без темы)')}${x.senderVerified === false ? ' <span class="pill pill--warn" title="Отправитель не подтверждён — email мог быть подделан">не подтверждён</span>' : ''}</td><td>${supportPill(x.status)}</td><td class="num">${x.messagesCount}</td>
                     <td class="nowrap muted">${fmtDateTime(x.lastMessageAt)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">Обращений нет</td></tr>'}
                 </tbody></table></div>
             </div>
@@ -916,6 +916,12 @@
         });
     }
 
+    // Проверка отправителя входящего письма (SPF/DKIM/DMARC по данным Resend); 'pass' и старые письма — без пометки
+    const SENDER_NOTE = {
+        fail: '<div class="note note--bad" style="margin-bottom:8px">⚠️ Отправитель не прошёл проверку подлинности (DMARC) — письмо, вероятно, подделано: адрес в поле «От» мог указать кто угодно. Не выполняйте действий с аккаунтом по этому письму.</div>',
+        unknown: '<div class="note note--warn" style="margin-bottom:8px">Отправитель не подтверждён: у домена нет DMARC или проверка не выполнена. Письмо не привязано к аккаунту. Прежде чем менять что-то в подписке, убедитесь, что пишет владелец — например, попросите написать из личного кабинета через Telegram.</div>',
+    };
+
     // Текст письма: всё экранируется, строки цитаты ("> ") показываются бледнее
     const messageText = (text) => esc(text || '').split('\n')
         .map((line) => (/^\s*&gt;/.test(line) ? `<span class="quote">${line}</span>` : line)).join('\n');
@@ -926,7 +932,8 @@
         view.innerHTML = `
             <div class="page-head">
                 <div><a href="#/support" class="small">← Обращения</a><h1 style="margin-top:4px">${esc(t.subject || '(без темы)')}</h1>
-                    <div class="muted">№${t.id} · ${esc(t.email)}${d.user ? ` · <a href="#/users/${d.user.id}">Карточка пользователя</a>` : ' · не зарегистрирован на сайте'}</div>
+                    <div class="muted">№${t.id} · ${esc(t.email)}${d.user ? ` · <a href="#/users/${d.user.id}">Карточка пользователя</a>`
+                        : d.possibleUser ? ` · email совпадает с <a href="#/users/${d.possibleUser.id}">пользователем</a>, но отправитель не подтверждён` : ' · не зарегистрирован на сайте'}</div>
                 </div>
                 <div class="actions" style="align-items:center">${supportPill(t.status)}
                     <select id="status" style="width:auto">${Object.entries(SUPPORT_STATUS).map(([k, [label]]) => `<option value="${k}" ${t.status === k ? 'selected' : ''}>${label}</option>`).join('')}</select>
@@ -939,6 +946,7 @@
                             <div class="meta">${m.direction === 'out' ? `кому: ${esc(m.to)}` : `кому: ${esc(m.to || '—')}${m.cc ? ` · копия: ${esc(m.cc)}` : ''}`}</div></div>
                         <div class="meta">${fmtDateTime(m.createdAt)}</div>
                     </div>
+                    ${m.direction === 'in' && SENDER_NOTE[m.senderAuth] ? SENDER_NOTE[m.senderAuth] : ''}
                     ${m.contentMissing ? '<div class="note note--warn" style="margin-bottom:8px">Текст письма получить не удалось — сохранены только отправитель и тема. Письмо можно посмотреть в панели Resend.</div>' : ''}
                     <pre class="msg-text">${messageText(m.text) || '<span class="muted">(пустое письмо)</span>'}</pre>
                     ${m.truncated ? '<p class="small muted">Письмо слишком большое и сохранено не полностью.</p>' : ''}
