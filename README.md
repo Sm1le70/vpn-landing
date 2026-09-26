@@ -192,6 +192,20 @@ sudo ls -l backups/
 rsync -a root@example.com:/opt/vpn-landing/backups/ ./vpn-landing-backups/
 ```
 
+**4. Шифрование копий (рекомендуется).** В копиях — персональные данные, секреты 2FA и ключи API, а в п. 3 они уходят с сервера. Скрипт умеет шифровать их утилитой [age](https://github.com/FiloSottile/age): на сервере хранится только публичный ключ, и украденные с сервера копии без приватного ключа бесполезны.
+
+```bash
+# На своём компьютере (не на сервере!) — пара ключей; age-key.txt храните в менеджере паролей
+age-keygen -o age-key.txt          # печатает «Public key: age1...»
+
+# На сервере
+sudo apt install -y age
+echo 'BACKUP_AGE_RECIPIENT=age1...' >> /opt/vpn-landing/.env   # публичный ключ
+sudo scripts/backup.sh                                          # копия: backups/app-….db.age, зашифрована
+```
+
+Копии базы и `.env` сохраняются как `*.age`, открытые файлы удаляются. Старые открытые копии удаляются по очереди вместе с новыми (последние `BACKUP_KEEP`); удалить их сразу: `sudo rm backups/app-*.db backups/env-????-??-??_??-??`.
+
 **Восстановление:**
 
 ```bash
@@ -199,6 +213,15 @@ cd /opt/vpn-landing
 sudo ls -lt backups/                                        # выберите копию
 sudo scripts/backup.sh restore backups/app-2026-09-20_04-00.db
 ```
+
+Зашифрованную копию скрипт расшифрует сам, если указать приватный ключ (скопируйте его на сервер только на время восстановления):
+
+```bash
+BACKUP_AGE_IDENTITY=/root/age-key.txt sudo -E scripts/backup.sh restore backups/app-2026-09-20_04-00.db.age
+sudo shred -u /root/age-key.txt
+```
+
+`.env` из зашифрованной копии: `age -d -i age-key.txt -o .env backups/env-….age`.
 
 Скрипт остановит контейнер, отложит текущую базу как `data/app.db.before-restore-<время>` вместе с файлами `-wal` и `-shm`, положит копию с нужным владельцем (uid 1000) и запустит контейнер. Не копируйте базу вручную поверх `data/app.db`: если рядом останется старый `app.db-wal`, SQLite применит его к восстановленной копии, и база окажется смесью старых и новых данных.
 
