@@ -44,12 +44,30 @@ const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', 'loopback, linklocal, uniquelocal');
 
+// CSP сайта: скрипты, стили, шрифты и картинки — только свои (сторонних ресурсов на сайте нет).
+// У админки свой CSP (src/admin/routes.js).
+const SITE_CSP = [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self'",
+    "img-src 'self' data:",
+    "font-src 'self'",
+    "connect-src 'self'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+].join('; ');
+
 app.use((_req, res, next) => {
     res.set({
         'X-Content-Type-Options': 'nosniff',
         'Referrer-Policy': 'strict-origin-when-cross-origin',
         'X-Frame-Options': 'DENY',
+        'Content-Security-Policy': SITE_CSP,
     });
+    // Браузер запомнит, что сайт только на https (полгода). Для http (локальный запуск, демо) не отправляется.
+    if (config.isHttps) res.set('Strict-Transport-Security', 'max-age=15552000');
     next();
 });
 

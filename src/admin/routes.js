@@ -46,8 +46,23 @@ export function adminRouter() {
     const router = express.Router();
     const siteOrigin = new URL(config.siteUrl).origin;
 
+    // CSP админки: скрипты только свои — даже если содержимое чужого письма обойдёт экранирование, оно не выполнится.
+    // Встроенные стили (атрибуты style) разрешены: интерфейс ими пользуется. HTML письма и вложения отдаются со своим CSP.
+    const csp = [
+        "default-src 'self'",
+        "script-src 'self'",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data:",
+        "font-src 'self'",
+        "connect-src 'self'",
+        "frame-src 'self'",
+        "object-src 'none'",
+        "base-uri 'none'",
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+    ].join('; ');
     router.use((_req, res, next) => {
-        res.set({ 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow' });
+        res.set({ 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow', 'Content-Security-Policy': csp });
         next();
     });
 

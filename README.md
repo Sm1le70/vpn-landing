@@ -140,6 +140,8 @@ Caddy сам получит сертификат Let's Encrypt (порты 80 и
 2. укажите в `.env` `REMNAWAVE_URL=http://remnawave:3000`;
 3. выполните `docker compose up -d`.
 
+**Заголовки безопасности** сайт отправляет сам: Content-Security-Policy (скрипты, стили, шрифты и картинки — только с этого домена; в админке дополнительно разрешены встроенные стили), `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, а при https в `SITE_URL` — HSTS на полгода. В Caddy их добавлять не нужно. Если подключаете к сайту сторонний сервис (счётчик, виджет чата), его адрес придётся добавить в CSP в `src/server.js`.
+
 ### 6. Проверить
 
 - `https://example.com` — лендинг, тарифы, `/terms`, `/privacy`, `/contacts`.
