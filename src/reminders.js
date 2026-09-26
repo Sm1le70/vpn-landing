@@ -51,16 +51,25 @@ export async function sendExpiryReminders(now = Date.now()) {
     return sent;
 }
 
+// Пороги не короче самого пробного периода не нужны: при пробном периоде на 3 дня и порогах «3, 1»
+// напоминание «через 3 дня» пришло бы сразу после активации
+function trialThresholds(user, expireAt, thresholds) {
+    const startedAt = user.trial_used_at ? Date.parse(`${user.trial_used_at.replace(' ', 'T')}Z`) : NaN;
+    if (Number.isNaN(startedAt)) return thresholds;
+    const trialDays = Math.round((new Date(expireAt) - startedAt) / DAY_MS);
+    return thresholds.filter((d) => d < trialDays);
+}
+
 async function remindUser(user, thresholds, now) {
     const rw = await fetchRemnaUser(user);
     if (!rw || rw.status !== 'ACTIVE') return false;
     const expireAt = new Date(rw.expireAt).toISOString();
-    const daysBefore = dueThreshold(new Date(expireAt) - now, thresholds);
+    const isTrial = user.plan_kind === 'trial';
+    const daysBefore = dueThreshold(new Date(expireAt) - now, isTrial ? trialThresholds(user, expireAt, thresholds) : thresholds);
     if (!daysBefore) return false; // продлили в панели — напоминать рано
     const done = db.prepare('SELECT 1 FROM expiry_reminders WHERE user_id = ? AND expire_at = ? AND days_before <= ?').get(user.id, expireAt, daysBefore);
     if (done) return false;
 
-    const isTrial = user.plan_kind === 'trial';
     await sendExpiryReminder(user.email, { expireAt, isTrial, daysBefore });
     db.prepare('INSERT OR IGNORE INTO expiry_reminders (user_id, expire_at, days_before) VALUES (?, ?, ?)').run(user.id, expireAt, daysBefore);
 

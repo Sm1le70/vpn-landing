@@ -52,7 +52,8 @@
 
     function busy(btn, on, text) {
         if (on) {
-            btn.dataset.text = btn.textContent;
+            // Кнопка уже занята (повторный запрос) — исходную надпись не перезаписываем
+            if (!btn.disabled) btn.dataset.text = btn.textContent;
             btn.textContent = text || 'Подождите…';
         } else if (btn.dataset.text) {
             btn.textContent = btn.dataset.text;
@@ -400,9 +401,13 @@
         el.textContent = text || '';
     }
 
-    // Проверка кода для выбранного тарифа; пустое поле — промокод убирается
+    // Проверка кода для выбранного тарифа; пустое поле — промокод убирается.
+    // Учитывается только ответ на последнюю проверку: тариф могли сменить, пока шёл запрос.
+    let promoSeq = 0;
     async function applyPromo({ quiet = false } = {}) {
         const code = $('promo-input').value.trim();
+        const seq = ++promoSeq;
+        const planId = state.selectedPlan;
         state.promo = null;
         if (!code) {
             promoStatus(null, '');
@@ -412,14 +417,18 @@
         const btn = $('btn-promo');
         busy(btn, true, 'Проверяем…');
         try {
-            const r = await api('POST', '/api/promo/check', { code, planId: state.selectedPlan });
-            state.promo = { ...r, planId: state.selectedPlan };
+            const r = await api('POST', '/api/promo/check', { code, planId });
+            if (seq !== promoSeq) return;
+            state.promo = { ...r, planId };
             promoStatus('ok', `Промокод применён: ${rub(r.priceBefore)} → ${rub(r.price)}`);
         } catch (err) {
+            if (seq !== promoSeq) return;
             promoStatus('bad', err.message);
         } finally {
-            busy(btn, false);
-            updatePayButton();
+            if (seq === promoSeq) {
+                busy(btn, false);
+                updatePayButton();
+            }
         }
         if (quiet && !state.promo) $('promo-input').focus();
     }

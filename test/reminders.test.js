@@ -101,6 +101,26 @@ describe('sendExpiryReminders', () => {
         assert.equal(mailsTo(off.user.email).length, 0);
     });
 
+    test('пробный период на 3 дня: «через 3 дня» сразу после активации не приходит, «завтра» — приходит', async () => {
+        const now = noonMsk();
+        const startedAt = new Date(now - 60_000).toISOString().replace('T', ' ').slice(0, 19);
+        const { user } = client(now, 3 - 60_000 / DAY, { plan_kind: 'trial', trial_used_at: startedAt });
+        await sendExpiryReminders(now);
+        assert.equal(mailsTo(user.email).length, 0);
+        // Через 2 дня 1 час (13:00 МСК) до конца меньше суток
+        await sendExpiryReminders(now + 2 * DAY + 3_600_000);
+        assert.equal(mailsTo(user.email).length, 1);
+        assert.match(mailsTo(user.email)[0].subject, /Пробный период заканчивается завтра/);
+    });
+
+    test('склонение порога в теме письма', async () => {
+        saveSettings({ reminderDays: '21' });
+        const now = noonMsk();
+        const { user } = client(now, 20.5);
+        await sendExpiryReminders(now);
+        assert.match(mailsTo(user.email)[0].subject, /через 21 день —/);
+    });
+
     test('привязан Telegram — сообщение от бота; заблокированный /ban — нет', async () => {
         const now = noonMsk();
         const a = client(now, 2);
