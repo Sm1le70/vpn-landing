@@ -6,6 +6,7 @@ import { getSettings } from './settings.js';
 import { resend, resendEnabled } from './resend.js';
 import { sendSupportNotice, supportFrom } from './mailer.js';
 import { notifyInbound } from './tgnotify.js';
+import { every } from './jobs.js';
 
 export const THREAD_STATUSES = ['new', 'waiting', 'answered', 'closed'];
 export const STATUS_TITLES = { new: 'Новое', waiting: 'Ждёт ответа', answered: 'Отвечено', closed: 'Закрыто' };
@@ -319,9 +320,7 @@ const cleanupInbox = () =>
     db.prepare("DELETE FROM support_inbox WHERE status IN ('done', 'ignored') AND received_at < datetime('now', '-30 days')").run();
 
 export function startSupportJobs() {
-    const safe = (fn) => () => Promise.resolve().then(fn).catch((err) => console.error('[support jobs]', err));
-    setInterval(safe(retryPendingInbox), 60_000).unref();
-    setInterval(safe(retryOutgoingMessageIds), 5 * 60_000).unref();
-    setInterval(safe(cleanupInbox), 24 * 60 * 60_000).unref();
-    setTimeout(safe(retryPendingInbox), 10_000).unref();
+    every('support-inbox', 60_000, retryPendingInbox, { firstDelayMs: 10_000 });
+    every('support-message-ids', 5 * 60_000, retryOutgoingMessageIds);
+    every('support-cleanup', 24 * 60 * 60_000, cleanupInbox);
 }
