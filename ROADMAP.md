@@ -100,7 +100,7 @@
   - Флаг «выполняется» для `retryPaid`, `pollTrialDevices`, `refreshCachedSubscriptions` и задач поддержки.
 - [x] **3.3. Троттлинг сверки при ожидании оплаты** — `fix/order-poll-throttle`
   - `/api/orders/:id` и `/api/orders/:id/pay`: запрос в Platega по одному заказу не чаще раза в 10 с, иначе ответ из БД.
-- [ ] **3.4. Кэш данных подписки для кабинета** — `perf/subscription-cache`
+- [x] **3.4. Кэш данных подписки для кабинета** — `perf/subscription-cache`
   - Кэш `getSubscriptionInfo` на 30–60 с по пользователю; сброс после оплаты, пробного периода и действий админа. Убирает двойной запрос из `/api/me` и `qr.svg`.
 - [ ] **3.5. Статика до сессий, долгий кэш ассетов** — `perf/static-assets`
   - `/assets` подключить до `sessionMiddleware`; файлы с `?v=hash` — `Cache-Control: immutable`, год.

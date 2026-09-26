@@ -84,10 +84,11 @@ export async function createRemnaUser(user, { expireAt, deviceLimit, note }) {
     return rwUser;
 }
 
-export async function fetchRemnaUser(user) {
+// cached — для кабинета: данные панели не старше 30 с (см. remnawave.getUserCached)
+export async function fetchRemnaUser(user, { cached = false } = {}) {
     if (!user.rw_user_id) return null;
     try {
-        return await remnawave.getUser(user.rw_user_id);
+        return await (cached ? remnawave.getUserCached(user.rw_user_id) : remnawave.getUser(user.rw_user_id));
     } catch (err) {
         if (err instanceof RemnawaveError && err.status === 404) {
             db.prepare("UPDATE users SET rw_status = 'DELETED' WHERE id = ?").run(user.id);
@@ -281,12 +282,13 @@ async function pollTrialDevices() {
 
 // ---------- Кабинет ----------
 
+// Для кабинета: данные панели — из кэша (30 с), признаки пробного периода — из базы, всегда свежие
 export async function getSubscriptionInfo(user) {
-    const rwUser = await fetchRemnaUser(user);
+    const rwUser = await fetchRemnaUser(user, { cached: true });
     if (!rwUser) return null;
     let devices = null;
     try {
-        devices = (await remnawave.getUserDevices(rwUser.id)).total;
+        devices = (await remnawave.getUserDevicesCached(rwUser.id)).total;
     } catch {
         // счётчик устройств не критичен
     }

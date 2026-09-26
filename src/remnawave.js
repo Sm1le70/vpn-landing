@@ -16,7 +16,47 @@ export class RemnawaveError extends Error {
 let userResponseHook = null;
 export const onUserResponse = (fn) => (userResponseHook = fn);
 
+// Кэш данных пользователя и его устройств — только для кабинета (getUserCached, getUserDevicesCached):
+// кабинет запрашивает их при каждой загрузке, а выдача и продление всегда читают панель напрямую.
+// Любой изменяющий запрос к пользователю сбрасывает его кэш — после оплаты или действия админа данные свежие.
+const CACHE_MS = 30_000;
+const cache = new Map();
+
+function cached(key, load) {
+    const hit = cache.get(key);
+    if (hit && Date.now() - hit.at < CACHE_MS) return hit.value;
+    // Кэшируем и сам запрос: одновременные загрузки кабинета (страница и QR-код) не дублируют его
+    const value = load().catch((err) => {
+        cache.delete(key);
+        throw err;
+    });
+    cache.set(key, { at: Date.now(), value });
+    for (const [k, v] of cache) if (Date.now() - v.at >= CACHE_MS) cache.delete(k);
+    return value;
+}
+
+function invalidate(id) {
+    if (id == null) return;
+    cache.delete(`user:${id}`);
+    cache.delete(`devices:${id}`);
+}
+
+// ID пользователя изменяющего запроса: из пути (/api/users/5/...) или тела (PATCH { id }, devices { userId })
+const mutatedUserId = (apiPath, body) => apiPath.match(/^\/api\/users\/(\d+)/)?.[1] ?? body?.id ?? body?.userId ?? null;
+
 async function call(method, apiPath, body) {
+    if (method === 'GET') return request(method, apiPath, body);
+    // Сбрасываем до и после: чтение, начатое во время изменения, не оставит в кэше старые данные
+    const id = mutatedUserId(apiPath, body);
+    invalidate(id);
+    try {
+        return await request(method, apiPath, body);
+    } finally {
+        invalidate(id);
+    }
+}
+
+async function request(method, apiPath, body) {
     if (!url || !token) throw new RemnawaveError('Remnawave не настроен (REMNAWAVE_URL / REMNAWAVE_TOKEN)', 0);
 
     const headers = {
@@ -76,4 +116,10 @@ export const remnawave = {
     revokeSubscription: (id) => call('POST', `/api/users/${id}/actions/revoke`, {}),
     deleteAllDevices: (id) => call('POST', '/api/hwid/devices/delete-all', { userId: id }),
     getUserDevices: (id) => call('GET', `/api/hwid/devices/${id}`),
+    // Для кабинета: данные не старше CACHE_MS
+    getUserCached: (id) => cached(`user:${id}`, () => call('GET', `/api/users/${id}`)),
+    getUserDevicesCached: (id) => cached(`devices:${id}`, () => call('GET', `/api/hwid/devices/${id}`)),
 };
+
+// Для тестов
+export const clearRemnawaveCache = () => cache.clear();
