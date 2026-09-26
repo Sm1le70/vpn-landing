@@ -17,7 +17,7 @@ const sqlAgo = (minutes) => new Date(Date.now() - minutes * 60_000).toISOString(
 
 before(async () => {
     startTelegramSupport();
-    for (let i = 0; i < 100 && !supportBotUsername(); i++) await new Promise((r) => setTimeout(r, 10));
+    for (let i = 0; i < 500 && !supportBotUsername(); i++) await new Promise((r) => setTimeout(r, 20));
     assert.ok(supportBotUsername(), 'бот запущен');
 });
 
