@@ -16,7 +16,7 @@ export function reportResult(service, ok, error = null, now = Date.now()) {
     if (ok) {
         if (s.alerted) {
             const minutes = Math.max(1, Math.round((now - s.firstFailureAt) / 60_000));
-            alert({ title: `${title}: снова отвечает`, lines: [`Недоступность длилась около ${minutes} мин.`] });
+            alert({ title: `${title}: снова отвечает`, lines: [`Сбой длился около ${minutes} мин.`] });
         }
         Object.assign(s, { failures: 0, firstFailureAt: 0, alerted: false, lastError: null });
         return;
