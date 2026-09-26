@@ -208,7 +208,7 @@ export function adminRouter() {
         svc.audit(req.admin, 'apps.update', { details: { before, after } });
         return after;
     }));
-    // telegramReady — бот запущен и группа поддержки указана (для подсказки у флажка оповещений)
+    // telegramReady — бот запущен и группа поддержки указана (для подсказки у флажков оповещений и алертов)
     api.get('/settings', adminOnly, wrap(() => ({ ...getSettings(), telegramReady: Boolean(supportBotUsername()) })));
     api.put('/settings', adminOnly, wrap((req) => {
         const { before, after } = saveSettings(req.body ?? {});

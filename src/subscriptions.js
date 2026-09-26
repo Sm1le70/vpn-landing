@@ -6,6 +6,7 @@ import { db } from './db.js';
 import { remnawave, RemnawaveError, onUserResponse } from './remnawave.js';
 import { getTransaction } from './platega.js';
 import { sendSubscriptionReady } from './mailer.js';
+import { adminUserUrl, alert } from './alerts.js';
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
 export const addDays = (date, days) => new Date(date.getTime() + days * DAY_MS);
@@ -124,6 +125,12 @@ export function markOrderPaid(order, transaction) {
     if (mismatch) {
         console.error(`[order ${order.id}] оплата не принята: ${mismatch}`);
         db.prepare('UPDATE orders SET error = ? WHERE id = ?').run(`оплата не принята: ${mismatch}`, order.id);
+        alert({
+            key: `order-mismatch:${order.id}`,
+            title: 'Оплата не принята',
+            lines: [`Пользователь #${order.user_id}, заказ ${order.id}, ${order.amount} ₽`, `Причина: ${mismatch}`, 'Сверьте платёж в кабинете Platega.'],
+            link: adminUserUrl(order.user_id),
+        });
         return false;
     }
     const res = db
@@ -314,11 +321,28 @@ async function syncAll(orders) {
     }
 }
 
+// Оплачен, но доступ не выдан дольше STUCK_MINUTES — сотрудникам нужно разобраться (алерт раз в сутки на заказ)
+const STUCK_MINUTES = 10;
+function alertStuckOrders() {
+    const stuck = db
+        .prepare(`SELECT * FROM orders WHERE status = 'paid' AND paid_at < datetime('now', '-${STUCK_MINUTES} minutes')`)
+        .all();
+    for (const o of stuck) {
+        alert({
+            key: `order-stuck:${o.id}`,
+            title: 'Оплаченный заказ не выдан',
+            lines: [`Пользователь #${o.user_id}, заказ ${o.id}, ${o.amount} ₽, оплачен ${o.paid_at} UTC`, `Ошибка: ${o.error ?? 'нет'}`],
+            link: adminUserUrl(o.user_id),
+        });
+    }
+}
+
 // Сверка заказов: выдача оплаченных, сверка неоплаченных с Platega, закрытие неоплаченных за сутки.
 // slow — ещё и неоплаченные старше FAST_SYNC_HOURS, по которым оплата пока возможна (callback мог потеряться).
 export async function reconcileOrders({ slow = false } = {}) {
     const paid = db.prepare("SELECT id FROM orders WHERE status = 'paid'").all();
     for (const o of paid) await applyPaidOrder(o.id);
+    alertStuckOrders();
 
     await syncAll(
         db
