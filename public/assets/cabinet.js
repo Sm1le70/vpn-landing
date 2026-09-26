@@ -155,7 +155,7 @@
         }
         const limit = s.deviceLimit ? `Можно подключить до ${s.deviceLimit} ${plural(s.deviceLimit, ['устройства', 'устройств', 'устройств'])}. ` : '';
         $('devices-hint').textContent = devices.length
-            ? `${limit}Отвяжите устройство, которым больше не пользуетесь, — освободится место для нового.`
+            ? `${limit}Отвяжите устройство, которым больше не пользуетесь, — тогда можно будет подключить новое.`
             : `${limit}Устройства появятся здесь после первого подключения.`;
         $('devices-body').innerHTML = devices
             .map((d) => `<tr><td>${esc([d.platform, d.osVersion].filter(Boolean).join(' ') || 'Устройство')}${d.model ? ` <span class="muted">· ${esc(d.model)}</span>` : ''}</td>` +
