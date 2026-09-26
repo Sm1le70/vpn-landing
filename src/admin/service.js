@@ -2,7 +2,8 @@
 import { config } from '../config.js';
 import { db, tx } from '../db.js';
 import { remnawave } from '../remnawave.js';
-import { checkRefund, refundTransaction } from '../platega.js';
+import { checkRefund, getTransaction, refundTransaction } from '../platega.js';
+import { adminUserUrl, alert } from '../alerts.js';
 import { sendAccountNotice } from '../mailer.js';
 import { onAccountUnlinked } from '../tgsupport.js';
 import { purgeThreads } from '../tgnotify.js';
@@ -67,6 +68,7 @@ export const ACTION_TITLES = {
     'support.status': 'Смена статуса обращения',
     'order.sync': 'Сверка заказа с Platega',
     'order.refund': 'Возврат средств',
+    'order.chargeback': 'Chargeback (оспаривание платежа)',
     'plans.update': 'Изменение тарифов',
     'apps.update': 'Изменение приложений',
     'settings.update': 'Изменение настроек',
@@ -495,6 +497,55 @@ export async function refundOrder(admin, orderId, { subscriptionAction, reason, 
         details: { amount: order.amount, status, platega: result, subscriptionAction, subscription, notified },
     });
     return { status, message: result.message, subscription };
+}
+
+// Chargeback — клиент оспорил платёж через банк (callback Platega CHARGEBACKED).
+// Статус перепроверяется через API. Если по заказу уже выдан доступ, его дни снимаются;
+// отключать ли клиента, решает администратор (алерт в Telegram). Повторный callback ничего не меняет.
+export async function applyChargeback(order) {
+    if (!order.platega_tx_id) {
+        console.warn(`[chargeback] заказ ${order.id}: нет ID транзакции Platega, chargeback не применён`);
+        return;
+    }
+    const transaction = await getTransaction(order.platega_tx_id);
+    if (transaction.status !== 'CHARGEBACKED') {
+        console.warn(`[chargeback] заказ ${order.id}: Platega сообщает статус ${transaction.status}, chargeback не применён`);
+        return;
+    }
+    // Наш возврат (из админки) подтверждён — дни уже обработаны при возврате
+    if (db.prepare("UPDATE orders SET status = 'refunded' WHERE id = ? AND status IN ('refund_pending', 'refunded')").run(order.id).changes) return;
+
+    return withUserLock(order.user_id, async () => {
+        const fresh = loadOrder(order.id);
+        const before = fresh.status;
+        if (['chargeback', 'refunded', 'refund_pending'].includes(before)) return;
+        if (!db.prepare("UPDATE orders SET status = 'chargeback' WHERE id = ? AND status = ?").run(fresh.id, before).changes) return;
+
+        const user = getUserRow(fresh.user_id);
+        let subscription = null;
+        let effect;
+        if (before !== 'applied') {
+            effect = before === 'paid' ? 'Доступ по заказу ещё не выдавался — дни не начислялись.' : `Заказ не был оплачен на сайте (статус ${before}).`;
+        } else if (!user?.rw_user_id) {
+            effect = 'Подписки в панели нет — снимать нечего.';
+        } else {
+            try {
+                subscription = (await changeDays(user, -fresh.days)).after;
+                effect = `Со срока подписки снято ${fresh.days} дн., подписка до ${fmtDate(subscription.expireAt)}.`;
+            } catch (err) {
+                subscription = { error: err.message };
+                effect = `Не удалось снять дни (${err.message}) — снимите ${fresh.days} дн. вручную.`;
+            }
+        }
+        console.warn(`[chargeback] заказ ${fresh.id} (user ${fresh.user_id}): ${effect}`);
+        audit(null, 'order.chargeback', { targetType: 'order', targetId: fresh.id, details: { before, days: fresh.days, amount: fresh.amount, subscription } });
+        alert({
+            key: `chargeback:${fresh.id}`,
+            title: 'Chargeback: клиент оспорил платёж',
+            lines: [`Пользователь #${fresh.user_id}, заказ ${fresh.id}, ${fresh.amount} ₽`, effect, 'Отключить клиента, если нужно, — в карточке пользователя.'],
+            link: adminUserUrl(fresh.user_id),
+        });
+    });
 }
 
 // ---------- Просмотр ----------

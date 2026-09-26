@@ -38,6 +38,7 @@ import { telegramEnabled, telegramWebhookSecret } from './telegram.js';
 import { createLinkUrl, enqueueUpdate, startTelegramSupport, supportBotUsername } from './tgsupport.js';
 import { startEmailNotify } from './tgnotify.js';
 import { startAlerts } from './alerts.js';
+import { applyChargeback } from './admin/service.js';
 
 const app = express();
 app.disable('x-powered-by');
@@ -147,8 +148,8 @@ app.post('/webhooks/platega', express.json({ limit: '100kb' }), async (req, res)
         } else if (status === 'CANCELED') {
             db.prepare("UPDATE orders SET status = 'canceled' WHERE id = ? AND status = 'pending'").run(order.id);
         } else if (status === 'CHARGEBACKED') {
-            db.prepare("UPDATE orders SET status = CASE WHEN status IN ('refunded', 'refund_pending') THEN 'refunded' ELSE 'chargeback' END WHERE id = ?").run(order.id);
-            console.warn(`[webhook platega] возврат средств по заказу ${order.id} (user ${order.user_id})`);
+            // Статус перепроверяется через API; снятие дней, журнал и алерт — в applyChargeback
+            await applyChargeback(order);
         }
         res.json({ ok: true });
     } catch (err) {
