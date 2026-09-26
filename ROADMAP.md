@@ -133,7 +133,7 @@
 
 - [x] **5.1. Локальные шрифты** — `chore/self-host-fonts`
   - Manrope (woff2, нужные начертания, кириллица) в `public/assets/fonts`, убрать Google Fonts из `views/layout.html`. Сделать до 2.3 или вместе с ним.
-- [ ] **5.2. SEO** — `feat/seo`
+- [x] **5.2. SEO** — `feat/seo`
   - Open Graph и `canonical` в `layout.html` (из `SITE_URL` и мета страницы), `sitemap.xml`, ссылка на него в `robots.txt`.
 
 ## Завершение

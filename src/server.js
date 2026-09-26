@@ -36,7 +36,7 @@ import {
     trialAvailable,
     trialDisposable,
 } from './subscriptions.js';
-import { renderPage } from './pages.js';
+import { renderPage, sitemapXml } from './pages.js';
 import { verifyWebhook } from './resend.js';
 import { enqueueInbound, startSupportJobs } from './support.js';
 import { telegramEnabled, telegramWebhookSecret } from './telegram.js';
@@ -533,7 +533,10 @@ const pages = { '/': 'index', '/cabinet': 'cabinet', '/privacy': 'privacy', '/te
 for (const [route, name] of Object.entries(pages)) {
     app.get(route, (_req, res) => res.type('html').send(renderPage(name)));
 }
-app.get('/robots.txt', (_req, res) => res.type('text/plain').send('User-agent: *\nDisallow: /cabinet\nDisallow: /api/\n'));
+app.get('/robots.txt', (_req, res) =>
+    res.type('text/plain').send(`User-agent: *\nDisallow: /cabinet\nDisallow: /api/\n\nSitemap: ${config.siteUrl}/sitemap.xml\n`),
+);
+app.get('/sitemap.xml', (_req, res) => res.type('application/xml').send(sitemapXml()));
 app.use((_req, res) => res.status(404).type('html').send(renderPage('404')));
 
 const server = app.listen(config.port, () => {

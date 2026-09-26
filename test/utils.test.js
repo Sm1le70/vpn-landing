@@ -58,3 +58,22 @@ test('подпись вебхука Resend: своя проходит, чужа�
     assert.ok(!verifyWebhook(Buffer.from(`${body} `), headers, secret));
     assert.ok(!verifyWebhook(Buffer.from(body), headers, `whsec_${Buffer.from('other').toString('base64')}`));
 });
+
+test('SEO: canonical и Open Graph на публичных страницах, noindex — в кабинете и 404; sitemap', async () => {
+    const { renderPage, sitemapXml } = await import('../src/pages.js');
+    const index = renderPage('index');
+    assert.match(index, /<link rel="canonical" href="http:\/\/localhost:3000\/">/);
+    assert.match(index, /<meta property="og:title" content="TestVPN — [^"]+">/);
+    assert.match(index, /<meta property="og:description" content="[^"]+">/);
+    assert.doesNotMatch(index, /noindex/);
+    assert.match(renderPage('terms'), /<link rel="canonical" href="http:\/\/localhost:3000\/terms">/);
+    for (const page of ['cabinet', '404']) {
+        const html = renderPage(page);
+        assert.match(html, /<meta name="robots" content="noindex">/);
+        assert.doesNotMatch(html, /canonical|og:title/);
+    }
+    const xml = sitemapXml();
+    assert.match(xml, /^<\?xml version="1.0" encoding="UTF-8"\?>\n<urlset/);
+    assert.equal((xml.match(/<loc>/g) ?? []).length, 4);
+    assert.doesNotMatch(xml, /cabinet/);
+});
