@@ -7,42 +7,74 @@ import { applyPaidOrder, getUserRow, markOrderPaid, syncOrderWithPlatega } from 
 
 beforeEach(resetFakes);
 
+// Транзакция Platega этого заказа (payload — номер заказа, как при создании платежа)
+const txFor = (order, paymentDetails = {}) => ({ id: order.platega_tx_id, payload: order.id, paymentDetails: { amount: 199, currency: 'RUB', ...paymentDetails } });
+
 describe('markOrderPaid', () => {
     test('pending → paid', () => {
         const order = createOrder(createUser().id);
-        assert.equal(markOrderPaid(order, { paymentDetails: { amount: 199 } }), true);
+        assert.equal(markOrderPaid(order, txFor(order)), true);
         assert.equal(getOrder(order.id).status, 'paid');
         assert.ok(getOrder(order.id).paid_at);
     });
 
     test('отменённый заказ тоже принимается (оплата пришла после автозакрытия)', () => {
         const order = createOrder(createUser().id, { status: 'canceled' });
-        assert.equal(markOrderPaid(order, { paymentDetails: { amount: 199 } }), true);
+        assert.equal(markOrderPaid(order, txFor(order)), true);
         assert.equal(getOrder(order.id).status, 'paid');
     });
 
     test('повторная отметка ничего не меняет', () => {
         const order = createOrder(createUser().id, { status: 'applied' });
-        assert.equal(markOrderPaid(order, { paymentDetails: { amount: 199 } }), false);
+        assert.equal(markOrderPaid(order, txFor(order)), false);
         assert.equal(getOrder(order.id).status, 'applied');
     });
 
     test('сумма меньше суммы заказа — заказ не оплачен, ошибка записана', () => {
         const order = createOrder(createUser().id, { amount: 549 });
-        assert.equal(markOrderPaid(order, { paymentDetails: { amount: 199 } }), false);
+        assert.equal(markOrderPaid(order, txFor(order, { amount: 199 })), false);
         assert.equal(getOrder(order.id).status, 'pending');
-        assert.equal(getOrder(order.id).error, 'amount mismatch');
+        assert.match(getOrder(order.id).error, /сумма оплаты 199 меньше суммы заказа 549/);
     });
 
     test('копеечное расхождение допускается', () => {
         const order = createOrder(createUser().id, { amount: 199 });
-        assert.equal(markOrderPaid(order, { paymentDetails: { amount: 198.995 } }), true);
+        assert.equal(markOrderPaid(order, txFor(order, { amount: 198.995 })), true);
     });
 
-    // Текущее поведение: без суммы в ответе Platega заказ принимается. Задача 1.3 сделает сумму обязательной.
-    test('без суммы в транзакции заказ принимается (до задачи 1.3)', () => {
+    test('без суммы в транзакции заказ не принимается', () => {
         const order = createOrder(createUser().id);
-        assert.equal(markOrderPaid(order, {}), true);
+        assert.equal(markOrderPaid(order, { payload: order.id }), false);
+        assert.equal(getOrder(order.id).status, 'pending');
+        assert.match(getOrder(order.id).error, /нет суммы/);
+    });
+
+    test('валюта не RUB — заказ не принимается; без валюты — принимается', () => {
+        const a = createOrder(createUser().id);
+        assert.equal(markOrderPaid(a, txFor(a, { currency: 'USDT' })), false);
+        assert.match(getOrder(a.id).error, /валюта USDT/);
+        const b = createOrder(createUser().id);
+        assert.equal(markOrderPaid(b, txFor(b, { currency: undefined })), true);
+    });
+
+    test('транзакция с ID заказа принимается независимо от payload', () => {
+        const order = createOrder(createUser().id, { txId: 'tx-1' });
+        assert.equal(markOrderPaid(order, { id: 'tx-1', payload: 'что-то другое', paymentDetails: { amount: 199, currency: 'RUB' } }), true);
+    });
+
+    test('чужая транзакция не принимается', () => {
+        const order = createOrder(createUser().id, { txId: 'tx-own' });
+        assert.equal(markOrderPaid(order, { id: 'tx-other', payload: 'other-order', paymentDetails: { amount: 199 } }), false);
+        assert.match(getOrder(order.id).error, /не относится к заказу/);
+    });
+
+    test('ID транзакции ещё не сохранён: принимается только с payload = номер заказа', () => {
+        const a = createOrder(createUser().id);
+        assert.equal(markOrderPaid(a, { id: 'tx-x', payload: a.id, paymentDetails: { amount: 199 } }), true);
+        const b = createOrder(createUser().id);
+        assert.equal(markOrderPaid(b, { id: 'tx-y', payload: 'other-order', paymentDetails: { amount: 199 } }), false);
+        const c = createOrder(createUser().id);
+        assert.equal(markOrderPaid(c, { id: 'tx-z', paymentDetails: { amount: 199 } }), false);
     });
 });
 

@@ -104,12 +104,26 @@ async function notify(email, rwUser, isTrial) {
 
 // ---------- Заказы ----------
 
+// Почему подтверждённая транзакция Platega не подходит к заказу; null — подходит.
+// Транзакция должна быть этого заказа: её ID сохранён в заказе, а если ещё не сохранён
+// (callback пришёл раньше ответа на создание платежа) — payload равен номеру заказа.
+function transactionMismatch(order, transaction) {
+    const own = order.platega_tx_id ? transaction?.id === order.platega_tx_id : transaction?.payload === order.id;
+    if (!own) return `транзакция ${transaction?.id ?? '?'} не относится к заказу`;
+    const amount = transaction.paymentDetails?.amount;
+    if (amount == null || !Number.isFinite(Number(amount))) return 'в транзакции нет суммы оплаты';
+    const currency = transaction.paymentDetails.currency;
+    if (currency && currency !== 'RUB') return `валюта ${currency} вместо RUB`;
+    if (Number(amount) + 0.01 < order.amount) return `сумма оплаты ${Number(amount)} меньше суммы заказа ${order.amount}`;
+    return null;
+}
+
 // Отмечает заказ оплаченным после проверки транзакции в Platega. Возвращает true, если статус изменён.
 export function markOrderPaid(order, transaction) {
-    const paidAmount = Number(transaction?.paymentDetails?.amount);
-    if (Number.isFinite(paidAmount) && paidAmount + 0.01 < order.amount) {
-        console.error(`[order ${order.id}] сумма оплаты ${paidAmount} меньше суммы заказа ${order.amount}`);
-        db.prepare("UPDATE orders SET error = 'amount mismatch' WHERE id = ?").run(order.id);
+    const mismatch = transactionMismatch(order, transaction);
+    if (mismatch) {
+        console.error(`[order ${order.id}] оплата не принята: ${mismatch}`);
+        db.prepare('UPDATE orders SET error = ? WHERE id = ?').run(`оплата не принята: ${mismatch}`, order.id);
         return false;
     }
     const res = db
