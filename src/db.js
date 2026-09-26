@@ -39,6 +39,14 @@ db.exec(`
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    -- События входа по коду: отправленные письма ('code') и неверные вводы ('fail') — для суточных лимитов на email
+    CREATE TABLE IF NOT EXISTS login_events (
+        email      TEXT NOT NULL,
+        kind       TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS login_events_email ON login_events(email, kind, created_at);
+
     CREATE TABLE IF NOT EXISTS sessions (
         token_hash TEXT PRIMARY KEY,
         user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

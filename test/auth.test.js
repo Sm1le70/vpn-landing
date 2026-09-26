@@ -105,3 +105,71 @@ describe('постоянный код (login-code --permanent)', () => {
         assert.equal(revokeStaticLoginCode(email), false);
     });
 });
+
+describe('суточные лимиты на email (задача 2.1)', () => {
+    // Сдвигает события email в прошлое, как будто они были hoursAgo часов назад
+    const age = (email, hoursAgo) => db.prepare('UPDATE login_events SET created_at = created_at - ? WHERE email = ?').run(hoursAgo * 3_600_000, email);
+    const allowResend = (email) => db.prepare('UPDATE login_codes SET sent_at = 0 WHERE email = ?').run(email);
+
+    test('не больше 10 писем с кодом в сутки', async () => {
+        const email = uniqueEmail();
+        for (let i = 0; i < 10; i++) {
+            await requestLoginCode(email);
+            allowResend(email);
+        }
+        await assert.rejects(requestLoginCode(email), /Слишком много кодов.*через \d+ ч/);
+        assert.equal(fakes.resend.sent.length, 10);
+
+        age(email, 25);
+        await requestLoginCode(email);
+        assert.equal(fakes.resend.sent.length, 11, 'через сутки — снова можно');
+    });
+
+    test('не больше 15 неверных вводов в сутки, независимо от числа кодов', () => {
+        const email = uniqueEmail();
+        let code;
+        for (let i = 0; i < 15; i++) {
+            if (i % 5 === 0) code = issueLoginCode(email);
+            assert.throws(() => verifyLoginCode(email, wrong(code)), /Неверный код/);
+        }
+        code = issueLoginCode(email);
+        assert.throws(() => verifyLoginCode(email, code), /Слишком много неверных попыток/, 'даже верный код не принимается');
+
+        age(email, 25);
+        assert.ok(verifyLoginCode(email, code).token);
+    });
+
+    test('после лимита неверных вводов новый код не отправляется', async () => {
+        const email = uniqueEmail();
+        let code;
+        for (let i = 0; i < 15; i++) {
+            if (i % 5 === 0) code = issueLoginCode(email);
+            assert.throws(() => verifyLoginCode(email, wrong(code)));
+        }
+        allowResend(email);
+        await assert.rejects(requestLoginCode(email), /Слишком много неверных попыток/);
+        assert.equal(fakes.resend.sent.length, 0);
+    });
+
+    test('лимиты считаются по каждому email отдельно', async () => {
+        const a = uniqueEmail();
+        for (let i = 0; i < 10; i++) {
+            await requestLoginCode(a);
+            allowResend(a);
+        }
+        await requestLoginCode(uniqueEmail());
+    });
+
+    test('постоянный код работает и после лимита неверных вводов', () => {
+        const email = uniqueEmail();
+        const fixed = issueStaticLoginCode(email);
+        let code;
+        for (let i = 0; i < 15; i++) {
+            if (i % 5 === 0) code = issueLoginCode(email);
+            let guess = wrong(code);
+            if (guess === fixed) guess = wrong(guess);
+            assert.throws(() => verifyLoginCode(email, guess));
+        }
+        assert.ok(verifyLoginCode(email, fixed).token);
+    });
+});

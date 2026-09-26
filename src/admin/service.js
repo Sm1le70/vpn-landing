@@ -359,6 +359,7 @@ export function deleteAccount(admin, userId, { reason, confirmEmail }) {
         tx(() => {
             db.prepare('DELETE FROM sessions WHERE user_id = ?').run(user.id);
             db.prepare('DELETE FROM login_codes WHERE email = ?').run(user.email);
+            db.prepare('DELETE FROM login_events WHERE email = ?').run(user.email);
             db.prepare('DELETE FROM trial_hwids WHERE user_id = ?').run(user.id);
             db.prepare(
                 `UPDATE users SET email = ?, rw_user_id = NULL, rw_username = NULL, expire_at = NULL, rw_status = NULL,
