@@ -37,7 +37,7 @@
   - `node:test`, скрипт `npm test`. Каждый тестовый файл получает свою временную БД (`DATABASE_PATH` во временный каталог).
   - Заглушки Platega / Remnawave / Resend / Telegram переиспользовать из `scripts/demo.js` (вынести в общий модуль, если нужно).
   - Готово, когда: `npm test` запускается локально и проходит хотя бы один тест на `normalizeEmail`/`plural`.
-- [ ] **0.2. CI на GitHub Actions** — `chore/ci`
+- [x] **0.2. CI на GitHub Actions** — `chore/ci`
   - На push и PR: Node 22.13 и 24, `npm ci`, `npm test`, `npm run check-wording`.
   - Готово, когда: CI зелёный на PR.
 - [ ] **0.3. Тесты текущей денежной логики** — `chore/tests-money`
