@@ -71,6 +71,24 @@
                 <div class="table-wrap"><table class="orders"><thead><tr><th>Дата</th><th>Тариф</th><th>Сумма</th><th>Статус</th></tr></thead><tbody id="orders-body"></tbody></table></div>
             </div>
 
+            <div class="card" id="security-card" hidden>
+                <h2>Устройства и безопасность</h2>
+                <div id="devices-block" hidden>
+                    <p class="muted" id="devices-hint"></p>
+                    <div class="table-wrap"><table class="orders"><thead><tr><th>Устройство</th><th>Подключено</th><th></th></tr></thead><tbody id="devices-body"></tbody></table></div>
+                </div>
+                <div class="security-actions">
+                    <div id="revoke-block" hidden>
+                        <button class="btn btn--ghost btn--small" type="button" id="btn-revoke">Перевыпустить ссылку на подписку</button>
+                        <p class="small muted">Если ссылка попала к посторонним. Старая перестанет работать на всех устройствах — новую нужно будет добавить в приложения заново, она придёт и на почту.</p>
+                    </div>
+                    <div>
+                        <button class="btn btn--ghost btn--small" type="button" id="btn-logout-others">Выйти на других устройствах</button>
+                        <p class="small muted">Завершит вход в личный кабинет везде, кроме этого браузера. На работу подписки не влияет.</p>
+                    </div>
+                </div>
+            </div>
+
             <div class="center" id="tg-support" hidden>
                 <button class="btn btn--ghost btn--small" type="button" id="btn-tg-support">Написать в Telegram</button>
                 <p class="form-error" id="tg-error" hidden></p>

@@ -11,6 +11,7 @@ import {
     AuthError,
     SESSION_COOKIE,
     cleanupExpired,
+    destroyOtherSessions,
     destroySession,
     isValidEmail,
     normalizeEmail,
@@ -23,7 +24,10 @@ import { createPayment, getTransaction, isAuthenticCallback } from './platega.js
 import {
     UserFacingError,
     applyPaidOrder,
+    clientDevices,
     getSubscriptionInfo,
+    removeClientDevice,
+    revokeClientLink,
     handleHwidDeviceAdded,
     markOrderPaid,
     startBackgroundJobs,
@@ -327,6 +331,51 @@ app.get(
             orders,
             telegramSupport: Boolean(supportBotUsername()),
         });
+    }),
+);
+
+// Выход на других устройствах: сессии кабинета, кроме текущей
+app.post(
+    '/api/auth/logout-others',
+    requireUser,
+    wrap(async (req, res) => {
+        res.json({ ok: true, closed: destroyOtherSessions(req.user.id, req.sessionToken) });
+    }),
+);
+
+// Устройства (HWID), подключённые к подписке, и отвязка своего устройства
+app.get(
+    '/api/me/devices',
+    requireUser,
+    wrap(async (req, res) => {
+        res.json({ devices: await clientDevices(req.user) });
+    }),
+);
+
+app.post(
+    '/api/me/devices/delete',
+    requireUser,
+    wrap(async (req, res) => {
+        const hwid = String(req.body?.hwid ?? '');
+        if (!hwid || hwid.length > 256) return res.status(400).json({ error: 'Не указано устройство' });
+        if (!rateLimit(`device:${req.user.id}`, 10, 60 * 60 * 1000)) {
+            return res.status(429).json({ error: 'Слишком много действий с устройствами, попробуйте через час' });
+        }
+        await removeClientDevice(req.user, hwid);
+        res.json({ ok: true });
+    }),
+);
+
+// Перевыпуск ссылки подписки клиентом (если ссылка попала к посторонним)
+app.post(
+    '/api/me/revoke-link',
+    requireUser,
+    wrap(async (req, res) => {
+        if (req.user.blocked) return res.status(403).json({ error: 'Доступ к аккаунту приостановлен. Обратитесь в поддержку.' });
+        if (!rateLimit(`revoke:${req.user.id}`, 3, 24 * 60 * 60 * 1000)) {
+            return res.status(429).json({ error: 'Ссылку можно перевыпустить не больше 3 раз в сутки. Если нужна помощь — напишите в поддержку.' });
+        }
+        res.json({ subscriptionUrl: await revokeClientLink(req.user) });
     }),
 );
 

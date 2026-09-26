@@ -104,6 +104,11 @@ function remnawave(method, path, body, query) {
         if (m[2] === 'revoke') user.subscriptionUrl = `https://sub.test/${user.id}-${crypto.randomBytes(3).toString('hex')}`;
         return () => json({ response: user });
     }
+    if (path === '/api/hwid/devices/delete') {
+        const list = rw.devices.get(body.userId) ?? [];
+        rw.devices.set(body.userId, list.filter((d) => d.hwid !== body.hwid));
+        return () => json({ response: { total: rw.devices.get(body.userId).length, devices: rw.devices.get(body.userId) } });
+    }
     if (path === '/api/hwid/devices/delete-all') {
         rw.devices.delete(body.userId);
         return () => json({ response: { total: 0, devices: [] } });

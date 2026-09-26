@@ -366,6 +366,11 @@ http.createServer((req, res) => {
             user.subscriptionUrl = `https://sub.demo.local/${crypto.randomBytes(8).toString('hex')}`;
             return json(res, 200, { response: user });
         }
+        if (path === '/api/hwid/devices/delete') {
+            devices.set(body.userId, (devices.get(body.userId) ?? []).filter((d) => d.hwid !== body.hwid));
+            const list = devices.get(body.userId);
+            return json(res, 200, { response: { total: list.length, devices: list } });
+        }
         if (path === '/api/hwid/devices/delete-all') {
             devices.delete(body.userId);
             return json(res, 200, { response: { total: 0, devices: [] } });
