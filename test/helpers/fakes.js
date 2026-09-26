@@ -24,7 +24,8 @@ export const fakes = {
 
 export function resetFakes() {
     failures.length = 0;
-    Object.assign(fakes.remnawave, { users: new Map(), devices: new Map(), nextId: 1, requests: [] });
+    // nextId не сбрасывается: база общая на весь файл, и rw_user_id разных тестов не должны совпадать
+    Object.assign(fakes.remnawave, { users: new Map(), devices: new Map(), requests: [] });
     Object.assign(fakes.platega, {
         transactions: new Map(),
         refund: { supported: true, accepted: true, manualControlRequired: false },

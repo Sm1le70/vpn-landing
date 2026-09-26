@@ -5,7 +5,7 @@ import { addRemnaUser, addTransaction, failNext, fakes, resetFakes } from './hel
 import { ADMIN, SUPPORT, createOrder, createUser, daysBetween, getOrder, uniqueEmail } from './helpers/factories.js';
 import { db } from '../src/db.js';
 import { extendUser, grantAccess, refundOrder } from '../src/admin/service.js';
-import { getUserRow } from '../src/subscriptions.js';
+import { getUserRow, handleHwidDeviceAdded } from '../src/subscriptions.js';
 
 beforeEach(resetFakes);
 
@@ -188,5 +188,73 @@ describe('refundOrder', () => {
     test('поддержка не может делать возвраты', async () => {
         const { order } = paidOrder();
         await assert.rejects(refundOrder(SUPPORT, order.id, { subscriptionAction: 'keep', reason: 'просьба клиента' }), /Недостаточно прав/);
+    });
+});
+
+describe('продление пробного клиента (задача 1.1)', () => {
+    const trialSubscriber = (fields = {}) => {
+        const rw = addRemnaUser({ expireAt: new Date(Date.now() + 2 * 86_400_000).toISOString(), hwidDeviceLimit: 1, ...fields });
+        const user = createUser({ rw_user_id: rw.id, plan_kind: 'trial', trial_used_at: '2026-09-25 10:00:00' });
+        return { user, rw };
+    };
+
+    test('админ продлевает пробного — клиент становится платным, лимит устройств платный', async () => {
+        const { user, rw } = trialSubscriber();
+        await extendUser(ADMIN, user.id, { days: 30, reason: 'проверка' });
+        assert.equal(getUserRow(user.id).plan_kind, 'paid');
+        assert.equal(rw.hwidDeviceLimit, 3);
+        const { before, after } = JSON.parse(lastAudit().details);
+        assert.equal(before.planKind, 'trial');
+        assert.equal(after.planKind, 'paid');
+    });
+
+    test('выдача доступа пробному — то же самое', async () => {
+        const { user, rw } = trialSubscriber();
+        await grantAccess(ADMIN, { email: user.email, days: 30, reason: 'проверка' });
+        assert.equal(getUserRow(user.id).plan_kind, 'paid');
+        assert.equal(rw.hwidDeviceLimit, 3);
+    });
+
+    test('поддержка продлевает пробного на 1–7 дней — тоже переводит в платные', async () => {
+        const { user, rw } = trialSubscriber();
+        await extendUser(SUPPORT, user.id, { days: 3, reason: 'проверка' });
+        assert.equal(getUserRow(user.id).plan_kind, 'paid');
+        assert.equal(rw.hwidDeviceLimit, 3);
+    });
+
+    test('пробный, отключённый проверкой устройств, после продления включается', async () => {
+        const { user, rw } = trialSubscriber({ status: 'DISABLED' });
+        db.prepare('UPDATE users SET trial_blocked = 1 WHERE id = ?').run(user.id);
+        await extendUser(ADMIN, user.id, { days: 30, reason: 'проверка' });
+        assert.equal(rw.status, 'ACTIVE');
+        assert.equal(getUserRow(user.id).trial_blocked, 0);
+    });
+
+    test('после перевода в платные проверка устройств пробного периода подписку не отключает', async () => {
+        const { user, rw } = trialSubscriber();
+        db.prepare("INSERT INTO trial_hwids (hwid, user_id) VALUES ('shared-hwid', ?)").run(createUser().id);
+        await extendUser(ADMIN, user.id, { days: 30, reason: 'проверка' });
+        await handleHwidDeviceAdded(rw.id, 'shared-hwid');
+        assert.equal(rw.status, 'ACTIVE');
+    });
+
+    test('сокращение срока пробного — остаётся пробным', async () => {
+        const { user, rw } = trialSubscriber();
+        await extendUser(ADMIN, user.id, { days: -1, reason: 'проверка' });
+        assert.equal(getUserRow(user.id).plan_kind, 'trial');
+        assert.equal(rw.hwidDeviceLimit, 1);
+    });
+
+    test('продление платного клиента лимит устройств не трогает', async () => {
+        const { user, rw } = subscriber({ hwidDeviceLimit: 5 });
+        await extendUser(ADMIN, user.id, { days: 30, reason: 'проверка' });
+        assert.equal(rw.hwidDeviceLimit, 5);
+    });
+
+    test('отключённый администратором клиент после продления остаётся отключённым', async () => {
+        const { user, rw } = trialSubscriber({ status: 'DISABLED' });
+        db.prepare('UPDATE users SET trial_blocked = 1, blocked = 1 WHERE id = ?').run(user.id);
+        await extendUser(ADMIN, user.id, { days: 30, reason: 'проверка' });
+        assert.equal(rw.status, 'DISABLED');
     });
 });
