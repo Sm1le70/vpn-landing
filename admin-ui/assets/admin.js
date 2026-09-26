@@ -633,7 +633,7 @@
         const act = {
             extend: () => modal({
                 title: admin ? 'Продлить или сократить подписку' : 'Продлить подписку',
-                subtitle: admin ? 'Положительное число — продление, отрицательное — сокращение срока.' : `Не больше ${state.me.supportMaxDays} дней за раз.`,
+                subtitle: admin ? 'Положительное число — продление, отрицательное — сокращение срока.' : `Не больше ${state.me.supportMaxDays} дней на клиента за 30 дней — суммарно по всем сотрудникам поддержки. Больше — через администратора.`,
                 body: `<label class="field"><span>Дней</span><input type="number" name="days" value="${admin ? 30 : 3}" ${admin ? 'min="-3650"' : 'min="1"'} max="${admin ? 3650 : state.me.supportMaxDays}" required></label>
                     ${reasonField()}${notifyField(true)}`,
                 onSubmit: async (f) => {
@@ -1210,7 +1210,7 @@
                     ${a.disabled ? `<button class="btn btn--sm" data-enable="${a.id}">Включить</button>` : `<button class="btn btn--sm btn--danger" data-disable="${a.id}">Отключить</button>`}` : ''}
                 </td></tr>`).join('')}
             </tbody></table></div></div>
-            <div class="note">Роль «Поддержка»: просмотр пользователей и платежей, ответы на обращения, продление до ${state.me.supportMaxDays} дней, сброс устройств, перевыпуск и повторная отправка ссылки. Возвраты, статистика, тарифы и настройки — только администраторам.</div>`;
+            <div class="note">Роль «Поддержка»: просмотр пользователей и платежей, ответы на обращения, продление до ${state.me.supportMaxDays} дней на клиента за 30 дней, сброс устройств, перевыпуск и повторная отправка ссылки. Возвраты, статистика, тарифы и настройки — только администраторам.</div>`;
         const reload = () => VIEWS.admins(view);
         view.querySelector('#invite').onclick = () => modal({
             title: 'Пригласить сотрудника',
