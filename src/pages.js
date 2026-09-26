@@ -121,6 +121,31 @@ let cacheYear = new Date().getFullYear();
 onSettingsChange(() => cache.clear());
 onBotReady(() => cache.clear());
 
+// Публичные страницы (для sitemap.xml, canonical и Open Graph). Кабинет и 404 не индексируются.
+export const PUBLIC_PAGES = { index: '/', terms: '/terms', privacy: '/privacy', contacts: '/contacts' };
+
+function seoTags(name, title, description) {
+    const path = PUBLIC_PAGES[name];
+    if (!path) return '    <meta name="robots" content="noindex">';
+    const url = esc(`${config.siteUrl}${path === '/' ? '/' : path}`);
+    return [
+        `    <link rel="canonical" href="${url}">`,
+        '    <meta property="og:type" content="website">',
+        `    <meta property="og:site_name" content="${esc(getSettings().brandName)}">`,
+        `    <meta property="og:title" content="${title}">`,
+        `    <meta property="og:description" content="${description}">`,
+        `    <meta property="og:url" content="${url}">`,
+        '    <meta property="og:locale" content="ru_RU">',
+    ].join('\n');
+}
+
+export function sitemapXml() {
+    const urls = Object.values(PUBLIC_PAGES)
+        .map((p) => `  <url><loc>${esc(`${config.siteUrl}${p}`)}</loc></url>`)
+        .join('\n');
+    return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`;
+}
+
 export function renderPage(name) {
     // В подвале выводится год — после Нового года страницы собираются заново
     const year = new Date().getFullYear();
@@ -134,10 +159,13 @@ export function renderPage(name) {
     const meta = source.match(/^<!--\s*title:\s*(.*?)\s*\|\s*description:\s*(.*?)\s*-->/);
     const body = meta ? source.slice(meta[0].length) : source;
     const values = vars();
+    const title = meta ? fill(meta[1], values) : values.brand;
+    const description = meta ? fill(meta[2], values) : '';
     const html = versionAssets(fill(read('layout.html'), {
         ...values,
-        title: meta ? fill(meta[1], values) : values.brand,
-        description: meta ? fill(meta[2], values) : '',
+        title,
+        description,
+        seo: seoTags(name, title, description),
         page: name,
         content: fill(body, values),
     }));
