@@ -1,5 +1,5 @@
 // Раздел «Обращения» в админке: список, карточка треда, ответ клиенту, смена статуса, вложения.
-import { Readable } from 'node:stream';
+import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { config } from '../config.js';
 import { db } from '../db.js';
@@ -161,7 +161,16 @@ export async function streamAttachment(id, res) {
         'Content-Security-Policy': "default-src 'none'; sandbox",
     });
     if (length) res.set('Content-Length', String(length));
-    await pipeline(Readable.fromWeb(file.body), res);
+    // Content-Length может не прийти — считаем байты сами и обрываем передачу на лимите
+    let received = 0;
+    const limit = new Transform({
+        transform(chunk, _enc, done) {
+            received += chunk.length;
+            if (received > ATTACHMENT_MAX_BYTES) return done(new AdminActionError('Вложение больше 25 МБ — скачайте его в панели Resend'));
+            done(null, chunk);
+        },
+    });
+    await pipeline(Readable.fromWeb(file.body), limit, res);
 }
 
 // ---------- Действия ----------
