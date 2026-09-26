@@ -19,7 +19,7 @@ export const fakes = {
     remnawave: { users: new Map(), devices: new Map(), nextId: 1, requests: [] },
     platega: { transactions: new Map(), refund: { supported: true, accepted: true, manualControlRequired: false }, requests: [] },
     resend: { sent: [] },
-    telegram: { calls: [] },
+    telegram: { calls: [], nextTopic: 100, nextMessage: 1, deletedTopics: new Set() },
 };
 
 export function resetFakes() {
@@ -33,6 +33,7 @@ export function resetFakes() {
     });
     fakes.resend.sent = [];
     fakes.telegram.calls = [];
+    fakes.telegram.deletedTopics = new Set();
 }
 
 // Пользователь в панели (как после createUser); возвращает объект пользователя
@@ -143,10 +144,23 @@ function resend(method, path, body) {
     return () => json({ message: `fake resend: ${method} ${path} не поддерживается` }, 404);
 }
 
-function telegram(_method, path, body) {
+// Отправленные ботом сообщения: fakes.telegram.calls.filter((c) => c.method === 'sendMessage')
+function telegram(_method, path, body = {}) {
+    const t = fakes.telegram;
     const name = path.split('/').pop();
-    fakes.telegram.calls.push({ method: name, params: body });
-    return () => json({ ok: true, result: name === 'sendMessage' ? { message_id: fakes.telegram.calls.length } : true });
+    t.calls.push({ method: name, params: body });
+    const ok = (result) => () => json({ ok: true, result });
+    const fail = (code, description) => () => json({ ok: false, error_code: code, description }, code);
+    switch (name) {
+        case 'getMe': return ok({ id: 1, is_bot: true, first_name: 'Поддержка', username: 'test_support_bot' });
+        case 'getChat': return ok({ id: Number(body.chat_id), type: 'supergroup', is_forum: true });
+        case 'getChatMember': return ok({ status: 'administrator', can_manage_topics: true, can_delete_messages: true });
+        case 'createForumTopic': return ok({ message_thread_id: t.nextTopic++, name: body.name });
+        case 'sendMessage':
+            if (body.message_thread_id && t.deletedTopics.has(body.message_thread_id)) return fail(400, 'Bad Request: message thread not found');
+            return ok({ message_id: t.nextMessage++, chat: { id: body.chat_id } });
+        default: return ok(true);
+    }
 }
 
 const handlers = {

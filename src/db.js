@@ -283,6 +283,23 @@ db.exec(`
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS tg_notify_messages_thread ON tg_notify_messages(thread_id);
+
+    -- Служебные алерты (src/alerts.js): очередь отправки в тему «Алерты» и защита от повторов по dedup_key.
+    -- Без персональных данных: клиент указывается номером и ссылкой на карточку в админке.
+    CREATE TABLE IF NOT EXISTS alerts (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        dedup_key       TEXT,
+        text            TEXT NOT NULL,
+        link            TEXT,
+        -- 'pending' | 'done' | 'failed' | 'skipped' (Telegram не настроен или алерты выключены — только лог)
+        status          TEXT NOT NULL DEFAULT 'pending',
+        attempts        INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at INTEGER NOT NULL DEFAULT 0,
+        last_error      TEXT,
+        created_at      INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS alerts_pending ON alerts(status, id);
+    CREATE INDEX IF NOT EXISTS alerts_key ON alerts(dedup_key, created_at);
 `);
 
 // Миграции существующих баз: добавляем недостающие колонки.

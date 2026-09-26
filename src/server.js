@@ -37,6 +37,7 @@ import { enqueueInbound, startSupportJobs } from './support.js';
 import { telegramEnabled, telegramWebhookSecret } from './telegram.js';
 import { createLinkUrl, enqueueUpdate, startTelegramSupport, supportBotUsername } from './tgsupport.js';
 import { startEmailNotify } from './tgnotify.js';
+import { startAlerts } from './alerts.js';
 
 const app = express();
 app.disable('x-powered-by');
@@ -417,6 +418,7 @@ const server = app.listen(config.port, () => {
     startSupportJobs();
     startTelegramSupport();
     startEmailNotify();
+    startAlerts();
     if (config.admin.demoNo2fa) ensureDemoAdmin();
     ensureBootstrap();
     if (config.admin.path) console.log(`[server] админка: ${config.siteUrl}${config.admin.path}/`);

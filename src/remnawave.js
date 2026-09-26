@@ -1,5 +1,6 @@
 // Клиент API панели Remnawave (контракт 3.3.x).
 import { config } from './config.js';
+import { reportResult } from './health.js';
 
 const { url, token, cookie } = config.remnawave;
 
@@ -29,13 +30,21 @@ async function call(method, apiPath, body) {
     if (body !== undefined) headers['Content-Type'] = 'application/json';
     if (cookie) headers.Cookie = cookie;
 
-    const res = await fetch(`${url}${apiPath}`, {
-        method,
-        headers,
-        body: body === undefined ? undefined : JSON.stringify(body),
-        signal: AbortSignal.timeout(15_000),
-    });
-    const text = await res.text();
+    let res;
+    let text;
+    try {
+        res = await fetch(`${url}${apiPath}`, {
+            method,
+            headers,
+            body: body === undefined ? undefined : JSON.stringify(body),
+            signal: AbortSignal.timeout(15_000),
+        });
+        text = await res.text();
+    } catch (err) {
+        reportResult('remnawave', false, `${method} ${apiPath}: ${err.message}`);
+        throw err;
+    }
+    reportResult('remnawave', res.status < 500, `${method} ${apiPath} → ${res.status}`);
     let data;
     try {
         data = text ? JSON.parse(text) : {};

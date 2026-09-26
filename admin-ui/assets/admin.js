@@ -1144,9 +1144,13 @@
                     <span class="muted small">${s.telegramReady
                         ? 'Новые письма клиентов, ответы и смены статуса приходят в тему «Обращения» группы поддержки. В оповещениях есть email и начало письма.'
                         : 'Бот поддержки не запущен или не указана группа (TELEGRAM_BOT_TOKEN, TELEGRAM_SUPPORT_CHAT_ID) — оповещения не отправляются.'}</span>
+                    <label class="check"><input type="checkbox" name="telegramAlerts" ${s.telegramAlerts ? 'checked' : ''}> Служебные алерты в Telegram</label>
+                    <span class="muted small">${s.telegramReady
+                        ? 'В тему «Алерты» группы поддержки: оплаченный заказ не выдан за 10 минут, оплата не принята проверкой, недоступность панели или Platega. В алертах нет email — только номер пользователя и ссылка.'
+                        : 'Бот поддержки не запущен — алерты пишутся только в лог.'}</span>
                 </div></div>
                 <div class="card"><h2>Подписка</h2><div class="form">
-                    <div class="form-row">${numf('paidDeviceLimit', 'Лимит устройств (платная)', 0, 50, '0 — без ограничения. Применяется к новым оплатам и продлениям.')}</div>
+                    <div class="form-row">${numf('paidDeviceLimit', 'Лимит устройств (платная)', 0, 50, '0 — без ограничения. Применяется к новым оплатам и продлениям; больший индивидуальный лимит клиента при продлении сохраняется.')}</div>
                     <label class="check"><input type="checkbox" name="trialEnabled" ${s.trialEnabled ? 'checked' : ''}> Пробный период включён</label>
                     <div class="form-row">${numf('trialDays', 'Дней пробного периода', 1, 30)}${numf('trialDeviceLimit', 'Устройств на пробном периоде', 1, 10)}</div>
                 </div></div>
@@ -1158,6 +1162,7 @@
             const data = Object.fromEntries(new FormData(f));
             data.trialEnabled = f.trialEnabled.checked;
             data.telegramEmailNotify = f.telegramEmailNotify.checked;
+            data.telegramAlerts = f.telegramAlerts.checked;
             for (const k of ['paidDeviceLimit', 'trialDays', 'trialDeviceLimit']) data[k] = Number(data[k]);
             try {
                 await api('PUT', 'settings', data);

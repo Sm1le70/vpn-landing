@@ -1,23 +1,32 @@
 // Клиент API Platega: https://docs.platega.io/
 import crypto from 'node:crypto';
 import { config } from './config.js';
+import { reportResult } from './health.js';
 
 const { url, merchantId, secret } = config.platega;
 
 async function call(method, apiPath, body) {
     if (!merchantId || !secret) throw new Error('Platega не настроена (PLATEGA_MERCHANT_ID / PLATEGA_SECRET)');
-    const res = await fetch(`${url}${apiPath}`, {
-        method,
-        headers: {
-            'X-MerchantId': merchantId,
-            'X-Secret': secret,
-            'Content-Type': 'application/json',
-            Accept: 'application/json',
-        },
-        body: body === undefined ? undefined : JSON.stringify(body),
-        signal: AbortSignal.timeout(20_000),
-    });
-    const text = await res.text();
+    let res;
+    let text;
+    try {
+        res = await fetch(`${url}${apiPath}`, {
+            method,
+            headers: {
+                'X-MerchantId': merchantId,
+                'X-Secret': secret,
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+            },
+            body: body === undefined ? undefined : JSON.stringify(body),
+            signal: AbortSignal.timeout(20_000),
+        });
+        text = await res.text();
+    } catch (err) {
+        reportResult('platega', false, `${method} ${apiPath}: ${err.message}`);
+        throw err;
+    }
+    reportResult('platega', res.status < 500, `${method} ${apiPath} → ${res.status}`);
     let data;
     try {
         data = text ? JSON.parse(text) : {};
