@@ -267,3 +267,42 @@ describe('лимит устройств при переводе пробного
         assert.equal(rw.hwidDeviceLimit, 5);
     });
 });
+
+describe('лимит продлений для поддержки (задача 2.6)', () => {
+    // Поддержка — отдельная учётка в базе: лимит считается по журналу, по роли автора записи
+    const support = () => {
+        const id = Number(db.prepare("INSERT INTO admins (login, role, password_hash) VALUES (?, 'support', 'x')").run(`sup${Math.random().toString(36).slice(2, 8)}`).lastInsertRowid);
+        return { id, login: `sup${id}`, role: 'support' };
+    };
+    const age = (userId, days) =>
+        db.prepare("UPDATE audit_log SET created_at = datetime(created_at, ?) WHERE target_type = 'user' AND target_id = ?").run(`-${days} days`, String(userId));
+
+    test('не больше 7 дней на клиента за 30 дней, в сумме по всем сотрудникам поддержки', async () => {
+        const { user } = subscriber();
+        await extendUser(support(), user.id, { days: 5, reason: 'проверка' });
+        await assert.rejects(async () => extendUser(support(), user.id, { days: 3, reason: 'проверка' }), /осталось 2/);
+        await extendUser(support(), user.id, { days: 2, reason: 'проверка' });
+        await assert.rejects(async () => extendUser(support(), user.id, { days: 1, reason: 'проверка' }), /осталось 0/);
+    });
+
+    test('продления администратора в лимит поддержки не входят', async () => {
+        const { user } = subscriber();
+        await extendUser(ADMIN, user.id, { days: 30, reason: 'проверка' });
+        await extendUser(support(), user.id, { days: 7, reason: 'проверка' });
+    });
+
+    test('через 30 дней лимит снова доступен', async () => {
+        const { user } = subscriber();
+        await extendUser(support(), user.id, { days: 7, reason: 'проверка' });
+        age(user.id, 31);
+        await extendUser(support(), user.id, { days: 7, reason: 'проверка' });
+    });
+
+    test('лимит на каждого клиента отдельно', async () => {
+        const a = subscriber().user;
+        const b = subscriber().user;
+        const s = support();
+        await extendUser(s, a.id, { days: 7, reason: 'проверка' });
+        await extendUser(s, b.id, { days: 7, reason: 'проверка' });
+    });
+});

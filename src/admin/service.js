@@ -28,7 +28,20 @@ export class AdminActionError extends Error {
     }
 }
 
+// Поддержка продлевает подписку клиента не больше чем на столько дней за SUPPORT_EXTEND_WINDOW_DAYS (суммарно по всем сотрудникам)
 export const SUPPORT_MAX_EXTEND_DAYS = 7;
+const SUPPORT_EXTEND_WINDOW_DAYS = 30;
+
+// Сколько дней поддержка уже добавила клиенту за окно — по журналу (роль пишется в запись продления)
+function supportDaysUsed(userId) {
+    return db
+        .prepare(
+            `SELECT COALESCE(SUM(json_extract(details, '$.days')), 0) AS n FROM audit_log
+             WHERE action = 'user.extend' AND target_type = 'user' AND target_id = ?
+               AND json_extract(details, '$.role') = 'support' AND created_at > datetime('now', ?)`,
+        )
+        .get(String(userId), `-${SUPPORT_EXTEND_WINDOW_DAYS} days`).n;
+}
 
 const fmtDate = (d) => new Date(d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
 
@@ -176,13 +189,22 @@ export function extendUser(admin, userId, { days, reason, notify }) {
     const r = requireReason(reason);
     const user = loadUser(userId);
     return withUserLock(user.id, async () => {
+        if (admin.role === 'support') {
+            const left = Math.max(0, SUPPORT_MAX_EXTEND_DAYS - supportDaysUsed(user.id));
+            if (d > left) {
+                throw new AdminActionError(
+                    `Поддержка может продлить клиента не больше чем на ${SUPPORT_MAX_EXTEND_DAYS} дней за ${SUPPORT_EXTEND_WINDOW_DAYS} дней: осталось ${left}. Больше — через администратора.`,
+                    403,
+                );
+            }
+        }
         const { rw, before, after } = await changeDays(user, d, { allowCreate: admin.role === 'admin' });
         const notified = await notifyUser(user, notify, {
             title: d > 0 ? 'Подписка продлена' : 'Срок подписки изменён',
             text: d > 0 ? `Ваша подписка продлена на ${d} дн. и действует до ${fmtDate(rw.expireAt)}.` : `Срок действия подписки изменён: до ${fmtDate(rw.expireAt)}.`,
         });
         audit(admin, d > 0 ? 'user.extend' : 'user.shorten', {
-            targetType: 'user', targetId: user.id, targetLabel: user.email, reason: r, details: { days: d, before, after, notified },
+            targetType: 'user', targetId: user.id, targetLabel: user.email, reason: r, details: { days: d, role: admin.role, before, after, notified },
         });
         return { expireAt: rw.expireAt, status: rw.status };
     });
