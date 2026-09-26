@@ -99,3 +99,8 @@ config.admin = {
     // Только для npm run demo: вход без 2FA
     demoNo2fa: env('DEMO_ADMIN_NO_2FA') === 'true',
 };
+
+// Демо-вход создаёт учётки admin/admin и support/support без 2FA — на рабочем сайте это открытая админка
+if (config.admin.demoNo2fa && (config.isHttps || process.env.NODE_ENV === 'production')) {
+    throw new Error('DEMO_ADMIN_NO_2FA=true допустим только для локального демо (npm run demo): уберите его из .env рабочего сайта');
+}

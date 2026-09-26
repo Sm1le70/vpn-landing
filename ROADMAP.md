@@ -73,7 +73,7 @@
 - [ ] **2.1. Лимиты кода входа на email** — `fix/login-code-limits`
   - Не больше N кодов на email в сутки (например, 10) и не больше M неверных попыток на email в сутки независимо от числа кодов.
   - Понятные сообщения клиенту; постоянные коды (`login-code --permanent`) не затрагиваются.
-- [ ] **2.2. Запрет демо-режима админки в проде** — `fix/demo-flag-guard`
+- [x] **2.2. Запрет демо-режима админки в проде** — `fix/demo-flag-guard`
   - При `DEMO_ADMIN_NO_2FA=true` и https `SITE_URL` (или `NODE_ENV=production`) — ошибка запуска с пояснением.
 - [ ] **2.3. CSP и HSTS** — `feat/security-headers`
   - Сайт: `script-src 'self'`, стили/шрифты — свои (после 5.1 без Google Fonts), `frame-ancestors 'none'`.
