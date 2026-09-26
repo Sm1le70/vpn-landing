@@ -198,6 +198,20 @@ app.post('/webhooks/platega', express.json({ limit: '100kb' }), async (req, res)
 
 if (config.admin.path) app.use(config.admin.path, adminRouter());
 
+// ---------- Статика (до сессий: запрос за стилем или скриптом не обращается к базе) ----------
+
+// Ссылки на скрипты и стили содержат ?v=<хэш содержимого> (src/pages.js): по такому адресу файл не меняется —
+// браузер хранит его год и не перепроверяет. Остальное (шрифты, иконка) — час.
+app.use(
+    '/assets',
+    express.static(path.join(ROOT_DIR, 'public', 'assets'), {
+        maxAge: '1h',
+        setHeaders: (res) => {
+            if (res.req.query.v) res.set('Cache-Control', 'public, max-age=31536000, immutable');
+        },
+    }),
+);
+
 // ---------- API ----------
 
 app.use(express.json({ limit: '20kb' }));
@@ -441,7 +455,6 @@ app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }));
 
 // ---------- Страницы ----------
 
-app.use('/assets', express.static(path.join(ROOT_DIR, 'public', 'assets'), { maxAge: '1h' }));
 
 const pages = { '/': 'index', '/cabinet': 'cabinet', '/privacy': 'privacy', '/terms': 'terms', '/contacts': 'contacts' };
 for (const [route, name] of Object.entries(pages)) {
