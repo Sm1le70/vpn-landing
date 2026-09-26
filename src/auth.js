@@ -111,6 +111,11 @@ export function verifyLoginCode(email, code) {
     return createSession(email);
 }
 
+// Выход на других устройствах: удаляются все сессии пользователя, кроме текущей. Возвращает число удалённых.
+export function destroyOtherSessions(userId, currentToken) {
+    return db.prepare('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?').run(userId, hmac(String(currentToken ?? ''))).changes;
+}
+
 export function destroySession(token) {
     if (token) db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(hmac(token));
 }

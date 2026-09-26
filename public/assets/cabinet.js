@@ -137,6 +137,91 @@
         }
     });
 
+    // ---------- Устройства и безопасность ----------
+
+    async function renderSecurity() {
+        const s = state.me.subscription;
+        $('security-card').hidden = false;
+        $('revoke-block').hidden = !s;
+        $('devices-block').hidden = !s;
+        if (!s) return;
+        let devices = [];
+        try {
+            ({ devices } = await api('GET', '/api/me/devices'));
+        } catch {
+            $('devices-hint').textContent = 'Не удалось получить список устройств. Обновите страницу через минуту.';
+            $('devices-body').innerHTML = '';
+            return;
+        }
+        const limit = s.deviceLimit ? `Можно подключить до ${s.deviceLimit} ${plural(s.deviceLimit, ['устройства', 'устройств', 'устройств'])}. ` : '';
+        $('devices-hint').textContent = devices.length
+            ? `${limit}Отвяжите устройство, которым больше не пользуетесь, — тогда можно будет подключить новое.`
+            : `${limit}Устройства появятся здесь после первого подключения.`;
+        $('devices-body').innerHTML = devices
+            .map((d) => `<tr><td>${esc([d.platform, d.osVersion].filter(Boolean).join(' ') || 'Устройство')}${d.model ? ` <span class="muted">· ${esc(d.model)}</span>` : ''}</td>` +
+                `<td>${d.createdAt ? new Date(d.createdAt).toLocaleDateString('ru-RU') : '—'}</td>` +
+                `<td><button class="btn btn--ghost btn--small" type="button" data-hwid="${esc(d.hwid)}">Отвязать</button></td></tr>`)
+            .join('');
+    }
+
+    $('devices-body').addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-hwid]');
+        if (!btn) return;
+        busy(btn, true, 'Отвязываем…');
+        try {
+            await api('POST', '/api/me/devices/delete', { hwid: btn.dataset.hwid });
+            banner('ok', 'Устройство отвязано. Чтобы пользоваться сервисом на нём снова, просто подключитесь — оно появится в списке.');
+            await load();
+        } catch (err) {
+            banner('bad', esc(err.message));
+            busy(btn, false);
+        }
+    });
+
+    // Перевыпуск ссылки — необратимо, поэтому подтверждение повторным нажатием
+    $('btn-revoke').addEventListener('click', async (e) => {
+        const btn = e.currentTarget;
+        if (!btn.dataset.confirm) {
+            btn.dataset.confirm = '1';
+            btn.dataset.label = btn.textContent;
+            btn.textContent = 'Нажмите ещё раз — старая ссылка перестанет работать';
+            btn.classList.add('btn--danger');
+            setTimeout(() => {
+                if (!btn.dataset.confirm) return;
+                delete btn.dataset.confirm;
+                btn.textContent = btn.dataset.label;
+                btn.classList.remove('btn--danger');
+            }, 5000);
+            return;
+        }
+        delete btn.dataset.confirm;
+        btn.classList.remove('btn--danger');
+        btn.textContent = btn.dataset.label;
+        busy(btn, true, 'Перевыпускаем…');
+        try {
+            await api('POST', '/api/me/revoke-link');
+            banner('ok', 'Ссылка перевыпущена: новая — ниже и на почте. Добавьте её в приложение на каждом устройстве.');
+            await load();
+        } catch (err) {
+            banner('bad', esc(err.message));
+        } finally {
+            busy(btn, false);
+        }
+    });
+
+    $('btn-logout-others').addEventListener('click', async (e) => {
+        const btn = e.currentTarget;
+        busy(btn, true, 'Выходим…');
+        try {
+            const { closed } = await api('POST', '/api/auth/logout-others');
+            banner('ok', closed ? `Выполнен выход на других устройствах (${closed}).` : 'Других входов в личный кабинет не было.');
+        } catch (err) {
+            banner('bad', esc(err.message));
+        } finally {
+            busy(btn, false);
+        }
+    });
+
     $('btn-logout').addEventListener('click', async () => {
         await api('POST', '/api/auth/logout').catch(() => {});
         location.href = '/';
@@ -424,6 +509,7 @@
         renderTrial();
         renderPlans();
         renderOrders();
+        renderSecurity();
         show('view-dashboard');
         if (params.get('plan')) $('buy-card').scrollIntoView({ behavior: 'smooth', block: 'center' });
     }

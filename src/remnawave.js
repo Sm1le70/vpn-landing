@@ -117,6 +117,7 @@ export const remnawave = {
     // Перевыпуск ссылки подписки: старая ссылка перестаёт работать
     revokeSubscription: (id) => call('POST', `/api/users/${id}/actions/revoke`, {}),
     deleteAllDevices: (id) => call('POST', '/api/hwid/devices/delete-all', { userId: id }),
+    deleteDevice: (id, hwid) => call('POST', '/api/hwid/devices/delete', { userId: id, hwid }),
     getUserDevices: (id) => call('GET', `/api/hwid/devices/${id}`),
     // Для кабинета: данные не старше CACHE_MS
     getUserCached: (id) => cached(`user:${id}`, () => call('GET', `/api/users/${id}`)),

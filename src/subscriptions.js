@@ -5,7 +5,7 @@ import { getSettings } from './settings.js';
 import { db, tx } from './db.js';
 import { remnawave, RemnawaveError, onUserResponse } from './remnawave.js';
 import { getTransaction } from './platega.js';
-import { sendSubscriptionReady } from './mailer.js';
+import { sendAccountNotice, sendSubscriptionReady } from './mailer.js';
 import { isDisposableEmail } from './disposable.js';
 import { every } from './jobs.js';
 import { adminUserUrl, alert } from './alerts.js';
@@ -353,6 +353,46 @@ async function refreshCachedSubscriptionsOneByOne() {
             }
         }
     }
+}
+
+// ---------- Действия клиента в кабинете ----------
+
+// Устройства клиента (HWID) — для кабинета, из кэша панели
+export async function clientDevices(user) {
+    if (!user.rw_user_id) return [];
+    const { devices } = await remnawave.getUserDevicesCached(user.rw_user_id);
+    return devices.map((d) => ({ hwid: d.hwid, platform: d.platform, osVersion: d.osVersion, model: d.deviceModel, createdAt: d.createdAt }));
+}
+
+// Отвязка своего устройства. Отметка «устройство уже было на пробном периоде» (trial_hwids) остаётся.
+export function removeClientDevice(user, hwid) {
+    return withUserLock(user.id, async () => {
+        const devices = await clientDevices(user);
+        if (!devices.some((d) => d.hwid === hwid)) throw new UserFacingError('Устройство не найдено — обновите страницу');
+        await remnawave.deleteDevice(user.rw_user_id, hwid);
+        console.log(`[cabinet] ${user.email}: отвязано устройство ${hwid.slice(0, 8)}…`);
+    });
+}
+
+// Перевыпуск ссылки подписки клиентом: старая ссылка перестаёт работать, новая приходит на почту
+export function revokeClientLink(user) {
+    return withUserLock(user.id, async () => {
+        const rw = await fetchRemnaUser(user);
+        if (!rw) throw new UserFacingError('Подписки пока нет — перевыпускать нечего');
+        if (rw.status === 'DISABLED') throw new UserFacingError('Подписка отключена — перевыпуск недоступен. Напишите в поддержку.');
+        const updated = await remnawave.revokeSubscription(rw.id);
+        console.log(`[cabinet] ${user.email}: ссылка на подписку перевыпущена`);
+        try {
+            await sendAccountNotice(user.email, {
+                title: 'Новая ссылка на подписку',
+                text: 'Вы перевыпустили ссылку в личном кабинете: старая больше не работает. Добавьте новую ссылку в приложение на каждом устройстве.',
+                subscriptionUrl: updated.subscriptionUrl,
+            });
+        } catch (err) {
+            console.error('[mail] письмо с новой ссылкой не отправлено:', err.message);
+        }
+        return updated.subscriptionUrl;
+    });
 }
 
 // ---------- Фоновые задачи ----------
