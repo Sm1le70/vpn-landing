@@ -43,6 +43,7 @@ import { telegramEnabled, telegramWebhookSecret } from './telegram.js';
 import { createLinkUrl, enqueueUpdate, startTelegramSupport, supportBotUsername } from './tgsupport.js';
 import { startEmailNotify } from './tgnotify.js';
 import { startAlerts } from './alerts.js';
+import { applyPromo } from './promo.js';
 import { startReminders } from './reminders.js';
 import { applyChargeback } from './admin/service.js';
 import { every, staleJobs } from './jobs.js';
@@ -428,18 +429,24 @@ app.post(
             return res.status(429).json({ error: 'Слишком много попыток оплаты, попробуйте позже' });
         }
 
+        // Промокод проверяется ещё раз при создании заказа; засчитывается, когда заказ оплачен
+        const promo = String(req.body?.promoCode ?? '').trim() ? applyPromo(req.body.promoCode, plan, req.user.id) : null;
+        const amount = promo ? promo.price : plan.price;
+
         const orderId = crypto.randomUUID();
-        db.prepare('INSERT INTO orders (id, user_id, plan_id, days, amount) VALUES (?, ?, ?, ?, ?)').run(
+        db.prepare('INSERT INTO orders (id, user_id, plan_id, days, amount, promo_code, price_before) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
             orderId,
             req.user.id,
             plan.id,
             plan.days,
-            plan.price,
+            amount,
+            promo?.code ?? null,
+            promo ? plan.price : null,
         );
         try {
             const { transactionId, paymentUrl, expiresAt } = await createPayment({
                 orderId,
-                amount: plan.price,
+                amount,
                 description: `Подписка ${getSettings().brandName}: ${plan.title}`,
                 userId: req.user.id,
                 email: req.user.email,
@@ -472,6 +479,22 @@ app.get(
             }
         }
         res.json({ id: order.id, status: order.status, planTitle: getPlan(order.plan_id, { includeHidden: true })?.title, amount: order.amount });
+    }),
+);
+
+// Проверка промокода до оплаты: новая цена для выбранного тарифа
+app.post(
+    '/api/promo/check',
+    requireUser,
+    wrap(async (req, res) => {
+        // Ограничение — чтобы промокоды нельзя было подбирать
+        if (!rateLimit(`promo:${req.user.id}`, 20, 60 * 60 * 1000)) {
+            return res.status(429).json({ error: 'Слишком много попыток ввода промокода, попробуйте через час' });
+        }
+        const plan = getPlan(req.body?.planId);
+        if (!plan) return res.status(400).json({ error: 'Тариф не найден' });
+        const { code, price, priceBefore } = applyPromo(req.body?.code, plan, req.user.id);
+        res.json({ code, price, priceBefore });
     }),
 );
 

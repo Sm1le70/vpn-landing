@@ -24,6 +24,7 @@ import {
 } from './auth.js';
 import * as svc from './service.js';
 import * as support from './support.js';
+import { createPromo, listPromos, updatePromo } from '../promo.js';
 
 const UI_DIR = path.join(ROOT_DIR, 'admin-ui');
 
@@ -217,6 +218,19 @@ export function adminRouter() {
         svc.audit(req.admin, 'plans.update', { details: { before, after } });
         return after;
     }));
+    // --- промокоды ---
+    api.get('/promo', adminOnly, wrap(() => listPromos()));
+    api.post('/promo', adminOnly, wrap((req) => {
+        const promo = createPromo(req.body ?? {}, req.admin.id);
+        svc.audit(req.admin, 'promo.create', { targetType: 'promo', targetId: promo.id, targetLabel: promo.code, details: promo });
+        return promo;
+    }));
+    api.put('/promo/:id', adminOnly, wrap((req) => {
+        const { before, after } = updatePromo(req.params.id, req.body ?? {});
+        svc.audit(req.admin, 'promo.update', { targetType: 'promo', targetId: after.id, targetLabel: after.code, details: { before, after } });
+        return after;
+    }));
+
     api.get('/apps', adminOnly, wrap(() => getApps()));
     api.put('/apps', adminOnly, wrap((req) => {
         const { before, after } = saveApps(req.body?.apps);

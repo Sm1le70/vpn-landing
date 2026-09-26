@@ -4,7 +4,7 @@
     // ---------- Утилиты ----------
     const app = document.getElementById('app');
     const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-    const rub = (n) => `${Number(n || 0).toLocaleString('ru-RU', { maximumFractionDigits: 2 })} ₽`;
+    const rub = (n) => `${Number(n || 0).toLocaleString('ru-RU', Number.isInteger(Number(n || 0)) ? {} : { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽`;
     // Как replySubject на сервере: «Re:» не добавляется повторно
     const replySubject = (s) => (/^re\s*:/i.test(String(s).trim()) ? String(s).trim() : `Re: ${String(s).trim()}`);
     const toDate = (s) => (s ? new Date(/\d{4}-\d\d-\d\d \d/.test(s) ? s.replace(' ', 'T') + 'Z' : s) : null);
@@ -126,6 +126,7 @@
         { path: 'orders', title: 'Платежи' },
         { path: 'support', title: 'Обращения' },
         { path: 'plans', title: 'Тарифы', admin: true },
+        { path: 'promo', title: 'Промокоды', admin: true },
         { path: 'apps', title: 'Приложения', admin: true },
         { path: 'settings', title: 'Настройки', admin: true },
         { path: 'admins', title: 'Администраторы', admin: true },
@@ -748,7 +749,7 @@
                 <td class="nowrap">${fmtDateTime(o.createdAt)}</td>
                 ${showEmail ? `<td><a href="#/users/${o.userId}">${esc(o.email)}</a></td>` : ''}
                 <td>${esc(o.planTitle)} <span class="muted small">${o.days} дн.</span></td>
-                <td class="num">${rub(o.amount)}</td>
+                <td class="num">${rub(o.amount)}${o.promoCode ? `<div class="small muted">${esc(o.promoCode)} · без скидки ${rub(o.priceBefore)}</div>` : ''}</td>
                 <td>${orderPill(o.status)}${o.error ? `<div class="small" style="color:var(--bad)" title="${esc(o.error)}">ошибка выдачи</div>` : ''}${o.refundInfo?.message ? `<div class="small muted">${esc(o.refundInfo.message)}</div>` : ''}</td>
                 <td class="nowrap" style="text-align:right">
                     ${admin && ['pending', 'paid'].includes(o.status) ? `<button class="btn btn--sm" data-sync="${o.id}">Сверить</button>` : ''}
@@ -1009,6 +1010,73 @@
     }
 
     // --- Тарифы ---
+    // ---------- Промокоды ----------
+    const promoValue = (p) => (p.kind === 'percent' ? `−${p.value}%` : `−${rub(p.value)}`);
+    const toFormDate = (iso) => (iso ? new Date(new Date(iso).getTime() + 3 * 3_600_000).toISOString().slice(0, 10) : '');
+
+    VIEWS.promo = async (view) => {
+        if (!state.plans.length) state.plans = await api('GET', 'plans');
+        const list = await api('GET', 'promo');
+        const planTitle = (id) => state.plans.find((p) => p.id === id)?.title ?? id;
+        const period = (p) => (p.validFrom || p.validUntil ? `${p.validFrom ? `с ${fmtDate(p.validFrom)}` : ''} ${p.validUntil ? `по ${fmtDate(p.validUntil)}` : ''}`.trim() : 'бессрочно');
+        view.innerHTML = `
+            <div class="page-head"><h1>Промокоды</h1><button class="btn btn--primary" id="promo-new">Создать</button></div>
+            <p class="muted" style="margin-bottom:16px">Скидка на оплату тарифа в процентах или рублях. Клиент вводит код в личном кабинете перед оплатой. Использование засчитывается оплаченным заказом; один код — один раз на клиента. Цена после скидки — не ниже 1 ₽.</p>
+            <div class="card"><table class="t"><thead><tr><th>Код</th><th>Скидка</th><th>Тарифы</th><th>Период</th><th class="num">Использований</th><th class="num">Выручка</th><th>Статус</th></tr></thead><tbody>
+            ${list.map((p) => `<tr class="row-link" data-id="${p.id}">
+                <td class="mono">${esc(p.code)}${p.note ? `<div class="small muted">${esc(p.note)}</div>` : ''}</td>
+                <td>${promoValue(p)}</td>
+                <td>${p.planIds.length ? p.planIds.map((id) => esc(planTitle(id))).join(', ') : 'все'}</td>
+                <td class="nowrap">${esc(period(p))}</td>
+                <td class="num">${p.uses}${p.maxUses ? ` из ${p.maxUses}` : ''}</td>
+                <td class="num">${rub(p.revenue)}</td>
+                <td>${p.active ? '<span class="pill pill--ok">Действует</span>' : '<span class="pill">Выключен</span>'}</td>
+            </tr>`).join('') || '<tr><td colspan="7" class="empty">Промокодов пока нет</td></tr>'}
+            </tbody></table></div>`;
+        view.querySelector('#promo-new').onclick = () => promoModal(null, view);
+        for (const row of view.querySelectorAll('[data-id]')) row.onclick = () => promoModal(list.find((p) => p.id === Number(row.dataset.id)), view);
+    };
+
+    function promoModal(p, view) {
+        const plansBoxes = state.plans
+            .map((pl) => `<label class="check"><input type="checkbox" name="plan" value="${esc(pl.id)}" ${p?.planIds.includes(pl.id) ? 'checked' : ''}> ${esc(pl.title)} — ${rub(pl.price)}${pl.hidden ? ' (скрыт)' : ''}</label>`)
+            .join('');
+        modal({
+            title: p ? `Промокод ${p.code}` : 'Новый промокод',
+            subtitle: p ? `Использований: ${p.uses}. Код не меняется — по нему засчитаны заказы.` : '',
+            submitText: p ? 'Сохранить' : 'Создать',
+            body: `${p ? '' : '<label class="field"><span>Код</span><input type="text" name="code" required maxlength="32" placeholder="SPRING20" style="text-transform:uppercase"><span class="muted small">Латинские буквы, цифры, _ и -; регистр не важен</span></label>'}
+                <div class="form-row">
+                    <label class="field"><span>Тип скидки</span><select name="kind"><option value="percent" ${p?.kind !== 'fixed' ? 'selected' : ''}>Процент</option><option value="fixed" ${p?.kind === 'fixed' ? 'selected' : ''}>Рубли</option></select></label>
+                    <label class="field"><span>Размер</span><input type="number" name="value" required min="1" step="0.01" value="${p ? esc(p.value) : 10}"></label>
+                </div>
+                <div class="form-row">
+                    <label class="field"><span>Действует с</span><input type="date" name="validFrom" value="${toFormDate(p?.validFrom)}"></label>
+                    <label class="field"><span>Действует по</span><input type="date" name="validUntil" value="${toFormDate(p?.validUntil)}"></label>
+                </div>
+                <label class="field"><span>Лимит использований</span><input type="number" name="maxUses" min="1" value="${p?.maxUses ?? ''}" placeholder="без лимита"></label>
+                <div class="field"><span>Тарифы (ничего не отмечено — все)</span>${plansBoxes}</div>
+                <label class="field"><span>Заметка (видна только в админке)</span><input type="text" name="note" maxlength="200" value="${esc(p?.note ?? '')}"></label>
+                <label class="check"><input type="checkbox" name="active" ${!p || p.active ? 'checked' : ''}> Действует</label>`,
+            onSubmit: async (form) => {
+                const data = {
+                    code: form.code?.value,
+                    kind: form.kind.value,
+                    value: Number(form.value.value),
+                    maxUses: form.maxUses.value,
+                    validFrom: form.validFrom.value,
+                    validUntil: form.validUntil.value,
+                    planIds: [...form.querySelectorAll('[name=plan]:checked')].map((c) => c.value),
+                    note: form.note.value,
+                    active: form.active.checked,
+                };
+                await api(p ? 'PUT' : 'POST', p ? `promo/${p.id}` : 'promo', data);
+                toast(p ? 'Промокод сохранён' : 'Промокод создан');
+                await VIEWS.promo(view);
+            },
+        });
+    }
+
     VIEWS.plans = async (view) => {
         let plans = await api('GET', 'plans');
         const render = () => {

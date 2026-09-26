@@ -3,7 +3,8 @@
     const params = new URLSearchParams(location.search);
     const state = { config: null, me: null, selectedPlan: params.get('plan'), email: '', platform: null };
 
-    const rub = (n) => `${Number(n).toLocaleString('ru-RU')} ₽`;
+    // Копейки — всегда двумя цифрами (159,20 ₽), целые рубли — без них
+    const rub = (n) => `${Number(n).toLocaleString('ru-RU', Number.isInteger(Number(n)) ? {} : { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽`;
     const fmtDate = (s) => new Date(s).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
     const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
     const plural = (n, [one, few, many]) => {
@@ -386,14 +387,57 @@
 
     function updatePayButton() {
         const plan = state.config.plans.find((p) => p.id === state.selectedPlan);
-        $('btn-pay').textContent = `Оплатить ${rub(plan.price)}`;
+        const price = state.promo?.planId === plan.id ? state.promo.price : plan.price;
+        $('btn-pay').textContent = `Оплатить ${rub(price)}`;
     }
+
+    // ---------- Промокод ----------
+
+    function promoStatus(type, text) {
+        const el = $('promo-status');
+        el.hidden = !text;
+        el.className = `small promo-status${type ? ` promo-status--${type}` : ''}`;
+        el.textContent = text || '';
+    }
+
+    // Проверка кода для выбранного тарифа; пустое поле — промокод убирается
+    async function applyPromo({ quiet = false } = {}) {
+        const code = $('promo-input').value.trim();
+        state.promo = null;
+        if (!code) {
+            promoStatus(null, '');
+            updatePayButton();
+            return;
+        }
+        const btn = $('btn-promo');
+        busy(btn, true, 'Проверяем…');
+        try {
+            const r = await api('POST', '/api/promo/check', { code, planId: state.selectedPlan });
+            state.promo = { ...r, planId: state.selectedPlan };
+            promoStatus('ok', `Промокод применён: ${rub(r.priceBefore)} → ${rub(r.price)}`);
+        } catch (err) {
+            promoStatus('bad', err.message);
+        } finally {
+            busy(btn, false);
+            updatePayButton();
+        }
+        if (quiet && !state.promo) $('promo-input').focus();
+    }
+
+    $('btn-promo').addEventListener('click', () => applyPromo());
+    $('promo-input').addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+        applyPromo();
+    });
 
     $('plan-picker').addEventListener('change', (e) => {
         if (e.target.name !== 'plan') return;
         state.selectedPlan = e.target.value;
         for (const el of document.querySelectorAll('.pp')) el.classList.toggle('pp--active', el.querySelector('input').checked);
         updatePayButton();
+        // Промокод мог действовать только для другого тарифа — проверяем заново
+        if ($('promo-input').value.trim()) applyPromo({ quiet: true });
     });
 
     function renderOrders() {
@@ -437,7 +481,8 @@
         setError('buy-error');
         busy(btn, true, 'Создаём платёж…');
         try {
-            const { paymentUrl } = await api('POST', '/api/orders', { planId: state.selectedPlan, agree: e.target.agree.checked });
+            const promoCode = state.promo?.planId === state.selectedPlan ? state.promo.code : undefined;
+            const { paymentUrl } = await api('POST', '/api/orders', { planId: state.selectedPlan, agree: e.target.agree.checked, promoCode });
             location.href = paymentUrl;
         } catch (err) {
             setError('buy-error', err.message);

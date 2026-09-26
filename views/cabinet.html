@@ -52,6 +52,11 @@
                 <p class="muted">Разовая оплата без автосписаний. При продлении дни добавляются к текущему сроку.</p>
                 <form id="form-buy">
                     <div class="plan-picker" id="plan-picker"></div>
+                    <div class="promo-row">
+                        <input type="text" id="promo-input" placeholder="Промокод" maxlength="32" autocomplete="off" aria-label="Промокод">
+                        <button class="btn btn--ghost btn--small" type="button" id="btn-promo">Применить</button>
+                    </div>
+                    <p class="small promo-status" id="promo-status" hidden></p>
                     <label class="check">
                         <input type="checkbox" name="agree" required>
                         <span>Я принимаю <a href="/terms" target="_blank">пользовательское соглашение</a> и <a href="/privacy" target="_blank">политику конфиденциальности</a></span>
