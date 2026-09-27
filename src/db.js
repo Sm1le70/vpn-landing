@@ -438,6 +438,14 @@ addColumn('users', 'rw_first_connected_at', 'TEXT');
 addColumn('users', 'rw_online_at', 'TEXT');
 addColumn('users', 'rw_lifetime_traffic', 'INTEGER');
 addColumn('users', 'rw_activity_at', 'TEXT');
+// Когда создан текущий пользователь панели: от этого момента считается «не подключился за N часов»
+addColumn('users', 'rw_created_at', 'TEXT');
+// Первый вход в кабинет. Источник визита переносится клиенту только при первом входе — в том числе если аккаунт
+// заранее создал администратор. Существующим аккаунтам при появлении колонки ставится дата регистрации
+if (!db.prepare('PRAGMA table_info(users)').all().some((c) => c.name === 'first_login_at')) {
+    db.exec('ALTER TABLE users ADD COLUMN first_login_at TEXT');
+    db.exec('UPDATE users SET first_login_at = created_at');
+}
 // Отметка пробного периода у платных клиентов (раньше не снималась при оплате) исключала их из напоминаний
 db.exec("UPDATE users SET trial_blocked = 0 WHERE plan_kind = 'paid' AND trial_blocked = 1");
 

@@ -122,8 +122,9 @@ export function trackPageView(req, res, pagePath) {
         let vid = cookieVid(req);
         const hadCookie = Boolean(vid);
         if (!vid || !visitorExists(vid)) {
-            // С одного IP без cookie — не больше 30 новых посетителей в час: защита от накрутки
-            if (!rateLimit(`visitor:${req.ip}`, 30, 3_600_000, now)) return;
+            // С одного IP — не больше 300 новых посетителей в час: защита от накрутки
+            // (за общим IP мобильного оператора бывают сотни настоящих посетителей)
+            if (!rateLimit(`visitor:${req.ip}`, 300, 3_600_000, now)) return;
             vid ??= crypto.randomBytes(16).toString('base64url');
             const s = sourceOf(req.query, req.headers.referer);
             const { device, os } = deviceOf(req.headers['user-agent']);
@@ -237,8 +238,14 @@ export function trafficMetrics(from, to, now = Date.now()) {
     if (from >= rawCutoff(now)) return { exact: true, metrics: computeRaw(from, end), funnel: visitorFunnel(from, end) };
     const metrics = new Map();
     const stored = db.prepare('SELECT metric, key, n FROM web_daily WHERE day = ?');
+    // Самый ранний день с данными: раньше него считать нечего
+    const firstRaw = db.prepare('SELECT MIN(created_at) AS t FROM web_events').get().t;
+    const firstDay = [db.prepare('SELECT MIN(day) AS d FROM web_daily').get().d, firstRaw == null ? null : mskDay(firstRaw)]
+        .filter(Boolean)
+        .sort()[0];
     for (let t = from; t < end; t += DAY_MS) {
         const day = mskDay(t + 3_600_000);
+        if (!firstDay || day < firstDay) continue;
         let rows = stored.all(day);
         if (!rows.length) rows = [...computeRaw(mskMidnight(day), Math.min(mskMidnight(day) + DAY_MS, end))].map(([k, n]) => {
             const [metric, ...key] = k.split('|');
@@ -260,7 +267,7 @@ function visitorFunnel(from, to) {
                 COALESCE(SUM(${has("e.kind = 'login'")}), 0) AS login,
                 COALESCE(SUM(EXISTS (
                     SELECT 1 FROM web_events e JOIN orders o ON o.user_id = e.user_id
-                    WHERE e.vid = v.vid AND e.kind = 'login' AND o.paid_at IS NOT NULL
+                    WHERE e.vid = v.vid AND e.kind = 'login' AND o.status IN ('applied', 'paid')
                       AND o.paid_at >= strftime('%Y-%m-%d %H:%M:%S', v.first_seen / 1000, 'unixepoch')
                 )), 0) AS paid
              FROM visitors v WHERE v.first_seen >= ? AND v.first_seen < ?`,

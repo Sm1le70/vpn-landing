@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { fakes, resetFakes } from './helpers/fakes.js';
 import { uniqueEmail } from './helpers/factories.js';
 import { db } from '../src/db.js';
+import { findOrCreateUser } from '../src/subscriptions.js';
 import {
     AuthError,
     issueLoginCode,
@@ -37,12 +38,19 @@ describe('код из письма', () => {
     test('верный код: сессия создаётся, код одноразовый', () => {
         const email = uniqueEmail();
         const code = issueLoginCode(email);
-        const { user, created } = verifyLoginCode(email, ` ${code} `);
+        const { user, firstLogin } = verifyLoginCode(email, ` ${code} `);
         assert.equal(sessionsOf(user.id), 1);
-        assert.equal(created, true);
+        assert.equal(firstLogin, true);
         assert.throws(() => verifyLoginCode(email, code), /истёк/);
         // Повторный вход — аккаунт уже есть
-        assert.equal(verifyLoginCode(email, issueLoginCode(email)).created, false);
+        assert.equal(verifyLoginCode(email, issueLoginCode(email)).firstLogin, false);
+    });
+
+    test('первый вход в аккаунт, заранее созданный администратором, — тоже первый', () => {
+        const email = uniqueEmail();
+        findOrCreateUser(email);
+        assert.equal(verifyLoginCode(email, issueLoginCode(email)).firstLogin, true);
+        assert.equal(verifyLoginCode(email, issueLoginCode(email)).firstLogin, false);
     });
 
     test('неверный код: счётчик попыток, после 5 — только новый код', () => {

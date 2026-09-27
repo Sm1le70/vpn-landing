@@ -31,7 +31,7 @@ function median(values) {
 
 // Период из формы (московские даты включительно); по умолчанию — последние 30 суток
 export function parsePeriod({ from, to } = {}, now = Date.now()) {
-    const valid = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v ?? '')) && mskDate(mskMidnight(v)) === v;
+    const valid = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v ?? '')) && Number.isFinite(mskMidnight(v)) && mskDate(mskMidnight(v)) === v;
     const today = mskDate(now);
     const toDate = valid(to) ? to : today;
     const fromDate = valid(from) ? from : mskDate(mskMidnight(toDate) - 29 * DAY_MS);
@@ -58,7 +58,12 @@ function load() {
                 id: u.id, created: toMs(u.created_at), trial: toMs(u.trial_used_at),
                 sourceKey: u.source ? sourceKey(u.source, u.utm_campaign) : '', orders: [], paidOrders: [],
                 activity: u.rw_activity_at
-                    ? { device: toMs(u.rw_first_device_at), connected: toMs(u.rw_first_connected_at), traffic: u.rw_lifetime_traffic > 0 }
+                    ? {
+                        device: toMs(u.rw_first_device_at),
+                        // Старые версии панели присылают трафик без времени первого подключения
+                        connected: toMs(u.rw_first_connected_at) ?? (u.rw_lifetime_traffic > 0 ? 0 : null),
+                        traffic: u.rw_lifetime_traffic > 0,
+                    }
                     : null,
             }]),
     );
@@ -117,7 +122,7 @@ function money(data, range, now) {
 function funnel(data, range) {
     const cohort = [...data.users.values()].filter((u) => inRange(u.created, range));
     const ordered = cohort.filter((u) => u.orders.length);
-    const paid = cohort.filter((u) => u.orders.some((o) => o.paid != null));
+    const paid = cohort.filter((u) => u.paidOrders.length);
     return {
         registered: cohort.length,
         trial: cohort.filter((u) => u.trial != null).length,
@@ -175,7 +180,7 @@ function retention(data, range, now, graceDays) {
     res.churnRate = ratio(activeAtStart.filter((u) => churnedUsers.has(u.id)).length, activeAtStart.length);
 
     const trials = [...data.users.values()].filter((u) => inRange(u.trial, range));
-    const converted = trials.filter((u) => u.orders.some((o) => o.paid != null && o.paid >= u.trial));
+    const converted = trials.filter((u) => u.paidOrders.some((o) => o.paid >= u.trial));
     res.trials = trials.length;
     res.trialConverted = converted.length;
     res.trialRate = ratio(converted.length, trials.length);

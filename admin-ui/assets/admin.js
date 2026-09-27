@@ -545,6 +545,8 @@
         const funnelRows = funnelBars([['Вошли в кабинет', f.registered], ['Создали заказ', f.ordered], ['Оплатили', f.paid]]);
 
         const t = c.traffic, pt = p.traffic;
+        // Посетители без повторов (последние 90 дней) и сумма по дням (раньше) несравнимы — изменения не показываем
+        const tDelta = (...args) => (t.exact === pt.exact ? delta(...args) : '');
         const share = (n, of) => (of ? n / of : null);
         const clickLabel = (n) => CLICK_LABELS[n] ?? (n.startsWith('plan:') ? `Тариф «${a.planTitles[n.slice(5)] ?? n.slice(5)}»` : n);
         const sourceLabel = (s) => (s.source == null
@@ -597,10 +599,10 @@
             <h2 class="section-h">Сайт</h2>
             ${t.exact ? '' : '<div class="note" style="margin-bottom:12px">Период начинается раньше, чем 90 дней назад: подробные данные о визитах за это время удалены, показаны итоги по дням. Посетитель, заходивший в разные дни, посчитан несколько раз; воронки посетителей нет.</div>'}
             <div class="tiles">
-                ${aTile('Посетители', t.visitors, `новых: ${t.newVisitors}`, delta(t.visitors, pt.visitors))}
+                ${aTile('Посетители', t.visitors, `новых: ${t.newVisitors}`, tDelta(t.visitors, pt.visitors))}
                 ${aTile('Просмотры страниц', t.views, t.visitors ? `${(t.views / t.visitors).toLocaleString('ru-RU', { maximumFractionDigits: 1 })} на посетителя` : '', delta(t.views, pt.views))}
-                ${aTile('Долистали до тарифов', pct(share(t.pricingSeen, t.visitors)), `${t.pricingSeen} из ${t.visitors}`, delta(share(t.pricingSeen, t.visitors), share(pt.pricingSeen, pt.visitors), { kind: 'rate' }))}
-                ${aTile('Открыли кабинет', pct(share(t.steps.cabinet, t.visitors)), `${t.steps.cabinet} · запросили код: ${t.steps.code}`, delta(share(t.steps.cabinet, t.visitors), share(pt.steps.cabinet, pt.visitors), { kind: 'rate' }))}
+                ${aTile('Долистали до тарифов', pct(share(t.pricingSeen, t.visitors)), `${t.pricingSeen} из ${t.visitors}`, tDelta(share(t.pricingSeen, t.visitors), share(pt.pricingSeen, pt.visitors), { kind: 'rate' }))}
+                ${aTile('Открыли кабинет', pct(share(t.steps.cabinet, t.visitors)), `${t.steps.cabinet} · запросили код: ${t.steps.code}`, tDelta(share(t.steps.cabinet, t.visitors), share(pt.steps.cabinet, pt.visitors), { kind: 'rate' }))}
             </div>
             ${vf ? `<div class="card">
                 <div class="card-head"><h2>Воронка с сайта</h2><span class="muted small">Посетители, впервые пришедшие за период; дальнейшие шаги — по сегодняшний день, пока у посетителя сохранилась cookie</span></div>

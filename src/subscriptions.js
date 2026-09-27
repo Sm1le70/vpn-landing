@@ -60,8 +60,11 @@ function saveActivity(rwUser) {
     if (!a) return;
     db.prepare(
         `UPDATE users SET rw_first_connected_at = COALESCE(?, rw_first_connected_at), rw_online_at = COALESCE(?, rw_online_at),
-                          rw_lifetime_traffic = ?, rw_activity_at = ? WHERE rw_user_id = ?`,
-    ).run(a.firstConnectedAt, a.onlineAt, a.lifetimeTraffic, new Date().toISOString(), rwUser.id);
+                          rw_lifetime_traffic = ?, rw_activity_at = ?, rw_created_at = COALESCE(?, rw_created_at) WHERE rw_user_id = ?`,
+    ).run(
+        a.firstConnectedAt, a.onlineAt, a.lifetimeTraffic, new Date().toISOString(),
+        rwUser.createdAt ? new Date(rwUser.createdAt).toISOString() : null, rwUser.id,
+    );
 }
 
 export const getUserRow = (id) => db.prepare('SELECT * FROM users WHERE id = ?').get(id);
@@ -118,11 +121,18 @@ export async function createRemnaUser(user, { expireAt, deviceLimit, note }) {
             description: `site: ${user.email} (${note})`,
         });
     }
-    db.prepare('UPDATE users SET rw_user_id = ?, rw_username = ?, rw_pending_username = NULL, expire_at = ?, rw_status = ? WHERE id = ?').run(
+    // Новый пользователь панели — данные об использовании прежнего (если его удалили в панели) не переносятся
+    db.prepare(
+        `UPDATE users SET rw_user_id = ?, rw_username = ?, rw_pending_username = NULL, expire_at = ?, rw_status = ?,
+                          rw_first_device_at = NULL, rw_first_connected_at = NULL, rw_online_at = NULL, rw_lifetime_traffic = NULL,
+                          rw_activity_at = NULL, rw_created_at = ?
+         WHERE id = ?`,
+    ).run(
         rwUser.id,
         rwUser.username,
         new Date(rwUser.expireAt).toISOString(),
         rwUser.status,
+        new Date(rwUser.createdAt ?? Date.now()).toISOString(),
         user.id,
     );
     return rwUser;
@@ -378,7 +388,8 @@ export async function refreshCachedSubscriptions() {
         panelUsers = await listAllRemnaUsers();
     } catch (err) {
         console.warn('[jobs] список пользователей панели не получен, обновляю по одному:', err.message);
-        return refreshCachedSubscriptionsOneByOne();
+        await refreshCachedSubscriptionsOneByOne();
+        return refreshFirstDevices();
     }
     const ours = db.prepare('SELECT id, rw_user_id FROM users WHERE rw_user_id IS NOT NULL').all();
     const update = db.prepare('UPDATE users SET expire_at = ?, rw_status = ? WHERE id = ?');

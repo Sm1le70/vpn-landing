@@ -714,9 +714,12 @@ const USER_FILTERS = {
     none: 'u.rw_user_id IS NULL',
     expiring: "u.rw_status = 'ACTIVE' AND u.expire_at > strftime('%Y-%m-%dT%H:%M:%fZ','now') AND u.expire_at <= strftime('%Y-%m-%dT%H:%M:%fZ','now','+3 days')",
     // Подписка действует, но клиент так и не подключился за N часов (настройка) после оплаты или начала пробного
-    not_connected: () => `u.rw_activity_at IS NOT NULL AND u.rw_first_connected_at IS NULL AND u.rw_status = 'ACTIVE'
-        AND u.expire_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')
-        AND COALESCE((SELECT MIN(o.paid_at) FROM orders o WHERE o.user_id = u.id AND o.status IN ('applied', 'paid')), u.trial_used_at, u.created_at)
+    // Отсчёт — от создания текущего пользователя панели (после удаления подписки и новой оплаты — заново);
+    // для данных до появления этой отметки — от последней оплаты или начала пробного периода
+    not_connected: () => `u.rw_activity_at IS NOT NULL AND u.rw_first_connected_at IS NULL AND COALESCE(u.rw_lifetime_traffic, 0) = 0
+        AND u.rw_status = 'ACTIVE' AND u.expire_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')
+        AND datetime(COALESCE(u.rw_created_at,
+            (SELECT MAX(o.paid_at) FROM orders o WHERE o.user_id = u.id AND o.status IN ('applied', 'paid')), u.trial_used_at, u.created_at))
             <= datetime('now', '-${Number(getSettings().activationHours)} hours')`,
 };
 export const notConnectedCount = () => db.prepare(`SELECT COUNT(*) AS n FROM users u WHERE ${USER_FILTERS.not_connected()}`).get().n;

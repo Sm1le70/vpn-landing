@@ -5,7 +5,7 @@ import { addRemnaUser, fakes, failNext, resetFakes } from './helpers/fakes.js';
 import { createOrder, createUser, DAY_MS } from './helpers/factories.js';
 import { db } from '../src/db.js';
 import { clearRemnawaveCache } from '../src/remnawave.js';
-import { activityOf, getUserRow, refreshCachedSubscriptions } from '../src/subscriptions.js';
+import { activityOf, createRemnaUser, getUserRow, refreshCachedSubscriptions } from '../src/subscriptions.js';
 import { listUsers } from '../src/admin/service.js';
 import { analytics } from '../src/admin/analytics.js';
 import { saveSettings } from '../src/settings.js';
@@ -60,6 +60,28 @@ test('синхронизация: первое подключение, траф�
     assert.equal(getUserRow(user.id).rw_first_device_at, firstDevice);
 });
 
+test('панель без списка пользователей: устройства всё равно обновляются', async () => {
+    const { rw, user } = subscriber();
+    const at = iso(Date.now() - HOUR);
+    fakes.remnawave.devices.set(rw.id, [{ hwid: 'a', userId: rw.id, createdAt: at }]);
+    fakes.remnawave.listUnsupported = true;
+    await refreshCachedSubscriptions();
+    assert.equal(getUserRow(user.id).rw_first_device_at, at);
+});
+
+test('новый пользователь панели — данные об использовании прежнего не переносятся', async () => {
+    const { user } = subscriber({ userTraffic: traffic({ firstConnectedAt: iso(Date.now() - DAY_MS), lifetimeUsedTrafficBytes: 5 }) });
+    await refreshCachedSubscriptions();
+    assert.ok(getUserRow(user.id).rw_first_connected_at);
+    // Пользователя удалили прямо в панели, клиент оплатил снова
+    await createRemnaUser(getUserRow(user.id), { expireAt: new Date(Date.now() + 30 * DAY_MS), deviceLimit: 3, note: 'paid' });
+    const u = getUserRow(user.id);
+    assert.equal(u.rw_first_connected_at, null);
+    assert.equal(u.rw_lifetime_traffic, null);
+    assert.equal(u.rw_activity_at, null);
+    assert.ok(u.rw_created_at);
+});
+
 test('список устройств недоступен — остальное обновляется', async () => {
     const { user } = subscriber({ userTraffic: traffic({ lifetimeUsedTrafficBytes: 10 }) });
     failNext('GET /api/hwid/devices', 'error', 500);
@@ -81,6 +103,15 @@ test('фильтр «Не подключились»: подписка дейс�
     assert.deepEqual(listUsers({ filter: 'not_connected' }).items.map((u) => u.id), [waiting.id]);
     saveSettings({ activationHours: 1 });
     assert.equal(listUsers({ filter: 'not_connected' }).total, 2);
+
+    // Трафик есть, а времени первого подключения панель не прислала — клиент подключался
+    db.prepare('UPDATE users SET rw_lifetime_traffic = 100 WHERE id = ?').run(waiting.id);
+    assert.equal(listUsers({ filter: 'not_connected' }).total, 1);
+    db.prepare('UPDATE users SET rw_lifetime_traffic = 0 WHERE id = ?').run(waiting.id);
+    // Отсчёт — от создания текущего пользователя панели, а не от первой оплаты
+    saveSettings({ activationHours: 24 });
+    db.prepare('UPDATE users SET rw_created_at = ? WHERE id = ?').run(iso(Date.now() - HOUR), waiting.id);
+    assert.equal(listUsers({ filter: 'not_connected' }).total, 0);
     // Неизвестный фильтр (в том числе имя свойства объекта) игнорируется
     assert.equal(listUsers({ filter: 'constructor' }).total, 4);
 });

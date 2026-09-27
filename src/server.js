@@ -285,9 +285,9 @@ app.post(
             return res.status(429).json({ error: 'Слишком много попыток, попробуйте позже' });
         }
         const email = normalizeEmail(req.body?.email);
-        const { token, user, created } = verifyLoginCode(email, req.body?.code);
+        const { token, user, firstLogin } = verifyLoginCode(email, req.body?.code);
         trackStep(req, 'login', user.id);
-        if (created) attachVisitor(req, user.id);
+        if (firstLogin) attachVisitor(req, user.id);
         res.cookie(SESSION_COOKIE, token, sessionCookieOptions());
         res.json({ ok: true });
     }),

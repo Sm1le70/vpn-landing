@@ -30,8 +30,9 @@ test('период: по умолчанию 30 суток по Москве, п�
     assert.equal(p.cur[0] - p.prev[0], 30 * DAY_MS);
     assert.throws(() => parsePeriod({ from: '2026-06-10', to: '2026-06-01' }, NOW), /позже/);
     assert.throws(() => parsePeriod({ from: '2024-01-01', to: '2026-06-01' }, NOW), /не больше/);
-    // Некорректные даты заменяются значениями по умолчанию
+    // Некорректные даты (в том числе несуществующий месяц) заменяются значениями по умолчанию
     assert.equal(parsePeriod({ from: '2026-02-30', to: 'вчера' }, NOW).to, '2026-06-15');
+    assert.equal(parsePeriod({ from: '2025-13-01', to: '2026-00-10' }, NOW).from, '2026-05-17');
 });
 
 test('деньги: выручка, новые и повторные клиенты, средний чек, время до первой оплаты', () => {
@@ -129,6 +130,17 @@ test('воронка по клиентам, вошедшим за период, 
     assert.equal(abandoned.rate, 2 / 3);
     assert.equal(abandoned.users, 2);
     assert.equal(abandoned.recovered, 1);
+});
+
+test('возврат и chargeback — не оплата: ни в воронке, ни в конверсии пробного', () => {
+    const refunded = createUser({ created_at: at('2026-06-02T10:00:00'), trial_used_at: at('2026-06-02T10:05:00') });
+    paidOrder(refunded, '2026-06-03T10:00:00', { status: 'refunded' });
+    const disputed = createUser({ created_at: at('2026-06-02T11:00:00') });
+    paidOrder(disputed, '2026-06-03T11:00:00', { status: 'chargeback' });
+    const { funnel, retention } = analytics(JUNE, NOW).current;
+    assert.equal(funnel.registered, 2);
+    assert.equal(funnel.paid, 0);
+    assert.equal(retention.trialConverted, 0);
 });
 
 test('конверсия пробного периода — по начавшим пробный за период', () => {

@@ -81,13 +81,13 @@ export const revokeStaticLoginCode = (email) => db.prepare('DELETE FROM static_l
 
 export const listStaticLoginCodes = () => db.prepare('SELECT email, attempts, created_at FROM static_login_codes ORDER BY email').all();
 
-// created — аккаунт появился при этом входе (для аналитики: источник переносится только новому клиенту)
+// firstLogin — первый вход в этот аккаунт (для аналитики: источник визита переносится только при первом входе)
 function createSession(email) {
-    const created = !db.prepare('SELECT 1 FROM users WHERE email = ?').get(email);
     const user = findOrCreateUser(email);
+    const firstLogin = db.prepare("UPDATE users SET first_login_at = datetime('now') WHERE id = ? AND first_login_at IS NULL").run(user.id).changes > 0;
     const token = crypto.randomBytes(32).toString('base64url');
     db.prepare('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)').run(hmac(token), user.id, Date.now() + SESSION_TTL_MS);
-    return { user, token, created };
+    return { user, token, firstLogin };
 }
 
 export function verifyLoginCode(email, code) {
