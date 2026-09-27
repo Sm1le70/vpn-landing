@@ -59,3 +59,14 @@ test('панель без списка пользователей — прежн
     assert.equal(getUserRow(user.id).rw_status, 'ACTIVE');
     assert.equal(getUserRow(gone.id).rw_status, 'DELETED');
 });
+
+test('панель не поняла start/size (список неполный) — никого не помечаем удалённым, обновляем по одному', async () => {
+    const { refreshCachedSubscriptions } = await import('../src/subscriptions.js');
+    for (let i = 0; i < 30; i++) addRemnaUser(); // первые 25 панели — чужие
+    const { rw, user } = client();
+    fakes.remnawave.listIgnoresPaging = true;
+    await refreshCachedSubscriptions();
+    assert.equal(getUserRow(user.id).rw_status, 'ACTIVE', 'не помечен удалённым');
+    assert.equal(getUserRow(user.id).expire_at, new Date(rw.expireAt).toISOString());
+    assert.ok(panelRequests((r) => /^\/api\/users\/\d+$/.test(r.path)) > 0, 'обновлено запросами по одному');
+});

@@ -140,6 +140,29 @@ describe('applyPaidOrder', () => {
         assert.ok(Math.abs(daysBetween(trialEnd, rw.expireAt) - 30) < 0.001);
     });
 
+    test('пробный клиент, отключённый проверкой устройств: после оплаты включён, отметка снята', async () => {
+        const rw = addRemnaUser({ expireAt: new Date(Date.now() + 86_400_000).toISOString(), status: 'DISABLED', hwidDeviceLimit: 1 });
+        const user = createUser({ rw_user_id: rw.id, plan_kind: 'trial', trial_blocked: 1 });
+        const order = createOrder(user.id, { status: 'paid', days: 30 });
+        await applyPaidOrder(order.id);
+
+        assert.equal(rw.status, 'ACTIVE');
+        assert.equal(getUserRow(user.id).plan_kind, 'paid');
+        assert.equal(getUserRow(user.id).trial_blocked, 0, 'иначе клиент не получает напоминаний');
+    });
+
+    test('отключённого администратором оплата не включает, но дни начисляются', async () => {
+        const expireAt = new Date(Date.now() + 5 * 86_400_000).toISOString();
+        const rw = addRemnaUser({ expireAt, status: 'DISABLED' });
+        const user = createUser({ rw_user_id: rw.id, plan_kind: 'paid', blocked: 1 });
+        const order = createOrder(user.id, { status: 'paid', days: 30 });
+        await applyPaidOrder(order.id);
+
+        assert.equal(getOrder(order.id).status, 'applied');
+        assert.equal(rw.status, 'DISABLED');
+        assert.ok(Math.abs(daysBetween(expireAt, rw.expireAt) - 30) < 0.001);
+    });
+
     test('ответ панели потерян (таймаут): повтор не продлевает второй раз', async () => {
         const expireAt = new Date(Date.now() + 10 * 86_400_000).toISOString();
         const rw = addRemnaUser({ expireAt });

@@ -27,7 +27,7 @@ export const fakes = {
 export function resetFakes() {
     failures.length = 0;
     // nextId не сбрасывается: база общая на весь файл, и rw_user_id разных тестов не должны совпадать
-    Object.assign(fakes.remnawave, { users: new Map(), devices: new Map(), requests: [], listUnsupported: false });
+    Object.assign(fakes.remnawave, { users: new Map(), devices: new Map(), requests: [], listUnsupported: false, listIgnoresPaging: false });
     Object.assign(fakes.platega, {
         transactions: new Map(),
         refund: { supported: true, accepted: true, manualControlRequired: false },
@@ -70,11 +70,12 @@ function remnawave(method, path, body, query) {
     rw.requests.push({ method, path, body });
     let m;
     if (method === 'GET' && path === '/api/users') {
-        // Список постранично: ?start=&size= → { users, total }; listUnsupported — панель без списка (400)
+        // Список постранично: ?start=&size= → { users, total }; listUnsupported — панель без списка (400);
+        // listIgnoresPaging — панель не понимает start/size и всегда отдаёт первые 25
         if (rw.listUnsupported) return () => json({ message: 'Bad request' }, 400);
         const all = [...rw.users.values()];
-        const start = Number(query.get('start') ?? 0);
-        const size = Number(query.get('size') ?? 25);
+        const start = rw.listIgnoresPaging ? 0 : Number(query.get('start') ?? 0);
+        const size = rw.listIgnoresPaging ? 25 : Number(query.get('size') ?? 25);
         return () => json({ response: { users: all.slice(start, start + size), total: all.length } });
     }
     if (method === 'POST' && path === '/api/users') {

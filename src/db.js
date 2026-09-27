@@ -368,6 +368,9 @@ addColumn('support_threads', 'sender_verified', 'INTEGER');
 // Сброс доступа из консоли: включить отключённого администратора после завершения сброса
 addColumn('admin_setup_tokens', 'enable_admin', 'INTEGER NOT NULL DEFAULT 0');
 db.exec('CREATE INDEX IF NOT EXISTS users_expire ON users(expire_at)');
+db.exec('CREATE INDEX IF NOT EXISTS orders_promo ON orders(promo_code)');
+// Отметка пробного периода у платных клиентов (раньше не снималась при оплате) исключала их из напоминаний
+db.exec("UPDATE users SET trial_blocked = 0 WHERE plan_kind = 'paid' AND trial_blocked = 1");
 
 export function tx(fn) {
     db.exec('BEGIN IMMEDIATE');

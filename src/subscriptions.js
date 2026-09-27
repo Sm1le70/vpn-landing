@@ -168,15 +168,14 @@ export function applyPaidOrder(orderId) {
                     const expireAt = addDays(base, order.days).toISOString();
                     // Запоминаем ожидаемый срок до запроса: по нему повтор узнает, что продление уже прошло
                     db.prepare('UPDATE orders SET target_expire_at = ? WHERE id = ?').run(expireAt, order.id);
-                    rwUser = await remnawave.updateUser({
-                        id: rwUser.id,
-                        status: 'ACTIVE',
-                        expireAt,
-                        hwidDeviceLimit: paidDeviceLimitFor(rwUser.hwidDeviceLimit),
-                    });
+                    const patch = { id: rwUser.id, expireAt, hwidDeviceLimit: paidDeviceLimitFor(rwUser.hwidDeviceLimit) };
+                    // Отключённого администратором оплата не включает (заказ мог быть создан до отключения)
+                    if (!user.blocked) patch.status = 'ACTIVE';
+                    rwUser = await remnawave.updateUser(patch);
                 }
             }
-            db.prepare("UPDATE users SET plan_kind = 'paid' WHERE id = ?").run(user.id);
+            // Платному клиенту проверка устройств пробного периода не нужна: снимаем её отметку
+            db.prepare("UPDATE users SET plan_kind = 'paid', trial_blocked = 0 WHERE id = ?").run(user.id);
             db.prepare("UPDATE orders SET status = 'applied', applied_at = datetime('now'), error = NULL WHERE id = ? AND status = 'paid'").run(order.id);
             console.log(`[order ${order.id}] подписка ${rwUser.username} продлена до ${rwUser.expireAt}`);
             await notify(user.email, rwUser, false);
@@ -328,14 +327,22 @@ export async function refreshCachedSubscriptions() {
     });
 }
 
-// Все пользователи панели: Map id → пользователь. Бросает ошибку, если хоть одна страница не получена.
+// Все пользователи панели: Map id → пользователь. Бросает ошибку, если хоть одна страница не получена
+// или список неполный (панель проигнорировала start/size) — по неполному списку нельзя помечать удалённых.
 async function listAllRemnaUsers() {
     const all = new Map();
     for (let start = 0; ; start += LIST_PAGE_SIZE) {
         const page = await remnawave.listUsers(start, LIST_PAGE_SIZE);
         if (!Array.isArray(page?.users)) throw new Error('неожиданный ответ списка пользователей');
+        const sizeBefore = all.size;
         for (const u of page.users) if (typeof u.id === 'number') all.set(u.id, u);
-        if (page.users.length < LIST_PAGE_SIZE || start + LIST_PAGE_SIZE >= Number(page.total ?? 0)) return all;
+        const total = page.total == null ? NaN : Number(page.total);
+        if (all.size >= total) return all;
+        if (page.users.length < LIST_PAGE_SIZE || start + LIST_PAGE_SIZE >= total) {
+            if (all.size < total) throw new Error(`список неполный: получено ${all.size} из ${total}`);
+            return all;
+        }
+        if (all.size === sizeBefore) throw new Error('страница списка повторяет предыдущие');
     }
 }
 
