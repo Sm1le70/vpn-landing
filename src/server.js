@@ -45,6 +45,7 @@ import { startEmailNotify } from './tgnotify.js';
 import { startAlerts } from './alerts.js';
 import { applyPromo } from './promo.js';
 import { startReminders } from './reminders.js';
+import { attachVisitor, startTracking, trackBeacon, trackPageView, trackStep } from './tracking.js';
 import { applyChargeback } from './admin/service.js';
 import { every, staleJobs } from './jobs.js';
 import { cleanupRateLimits, rateLimit } from './ratelimit.js';
@@ -272,6 +273,7 @@ app.post(
             return res.status(429).json({ error: 'Слишком много запросов, попробуйте позже' });
         }
         await requestLoginCode(email);
+        trackStep(req, 'code');
         res.json({ ok: true });
     }),
 );
@@ -283,7 +285,9 @@ app.post(
             return res.status(429).json({ error: 'Слишком много попыток, попробуйте позже' });
         }
         const email = normalizeEmail(req.body?.email);
-        const { token } = verifyLoginCode(email, req.body?.code);
+        const { token, user, created } = verifyLoginCode(email, req.body?.code);
+        trackStep(req, 'login', user.id);
+        if (created) attachVisitor(req, user.id);
         res.cookie(SESSION_COOKIE, token, sessionCookieOptions());
         res.json({ ok: true });
     }),
@@ -517,6 +521,12 @@ app.post(
     }),
 );
 
+// Клики на сайте (public/assets/track.js, navigator.sendBeacon — тело text/plain). Ответ всегда пустой.
+app.post('/api/t', express.text({ type: () => true, limit: '1kb' }), (req, res) => {
+    trackBeacon(req);
+    res.status(204).end();
+});
+
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }));
 
 // ---------- Страницы ----------
@@ -524,7 +534,10 @@ app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }));
 
 const pages = { '/': 'index', '/cabinet': 'cabinet', '/privacy': 'privacy', '/terms': 'terms', '/contacts': 'contacts' };
 for (const [route, name] of Object.entries(pages)) {
-    app.get(route, (_req, res) => res.type('html').send(renderPage(name)));
+    app.get(route, (req, res) => {
+        trackPageView(req, res, route);
+        res.type('html').send(renderPage(name));
+    });
 }
 app.get('/robots.txt', (_req, res) =>
     res.type('text/plain').send(`User-agent: *\nDisallow: /cabinet\nDisallow: /api/\n\nSitemap: ${config.siteUrl}/sitemap.xml\n`),
@@ -535,6 +548,7 @@ app.use((_req, res) => res.status(404).type('html').send(renderPage('404')));
 const server = app.listen(config.port, () => {
     console.log(`[server] ${getSettings().brandName} слушает :${config.port} (${config.siteUrl})`);
     startBackgroundJobs();
+    startTracking();
     startSupportJobs();
     startTelegramSupport();
     startEmailNotify();

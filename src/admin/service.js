@@ -427,6 +427,8 @@ export function deleteAccount(admin, userId, { reason, confirmEmail }) {
             telegramUnlinked = db.prepare('SELECT tg_user_id FROM tg_clients WHERE user_id = ?').all(user.id).map((c) => c.tg_user_id);
             db.prepare('UPDATE tg_clients SET user_id = NULL WHERE user_id = ?').run(user.id);
             db.prepare('DELETE FROM tg_link_tokens WHERE user_id = ?').run(user.id);
+            // Аналитика: визиты больше не связаны с аккаунтом (источник в самом аккаунте — не персональные данные)
+            db.prepare('UPDATE web_events SET user_id = NULL WHERE user_id = ?').run(user.id);
         });
         // Убираем email из названий тем; ошибки Telegram не мешают удалению
         onAccountUnlinked(telegramUnlinked).catch((err) => console.warn('[telegram] удаление аккаунта:', err.message));
@@ -651,6 +653,8 @@ function publicUser(u) {
         trialUsedAt: u.trial_used_at,
         trialBlocked: Boolean(u.trial_blocked),
         createdAt: u.created_at,
+        // Первый переход на сайт (src/tracking.js); null — клиент пришёл до появления счётчика или без cookie
+        source: u.source ? { source: u.source, medium: u.utm_medium, campaign: u.utm_campaign, referrer: u.referrer, landing: u.landing, firstVisitAt: u.first_visit_at } : null,
     };
 }
 

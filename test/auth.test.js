@@ -37,9 +37,12 @@ describe('код из письма', () => {
     test('верный код: сессия создаётся, код одноразовый', () => {
         const email = uniqueEmail();
         const code = issueLoginCode(email);
-        const { user } = verifyLoginCode(email, ` ${code} `);
+        const { user, created } = verifyLoginCode(email, ` ${code} `);
         assert.equal(sessionsOf(user.id), 1);
+        assert.equal(created, true);
         assert.throws(() => verifyLoginCode(email, code), /истёк/);
+        // Повторный вход — аккаунт уже есть
+        assert.equal(verifyLoginCode(email, issueLoginCode(email)).created, false);
     });
 
     test('неверный код: счётчик попыток, после 5 — только новый код', () => {

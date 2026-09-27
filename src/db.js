@@ -382,6 +382,54 @@ addColumn('support_inbox', 'sender_email', 'TEXT');
 db.exec('CREATE INDEX IF NOT EXISTS support_inbox_sender ON support_inbox(sender_email)');
 db.exec('CREATE INDEX IF NOT EXISTS users_expire ON users(expire_at)');
 db.exec('CREATE INDEX IF NOT EXISTS orders_promo ON orders(promo_code)');
+// Аналитика посещений (src/tracking.js). Посетитель — случайный id из cookie; IP не хранится.
+// Сырые события хранятся 90 дней, итоги по дням (web_daily) — всегда.
+db.exec(`
+    -- Первый визит: источник (utm-метки, ?ref=, домен реферера), страница входа, тип устройства
+    CREATE TABLE IF NOT EXISTS visitors (
+        vid        TEXT PRIMARY KEY,
+        first_seen INTEGER NOT NULL,
+        source     TEXT NOT NULL,
+        medium     TEXT,
+        campaign   TEXT,
+        content    TEXT,
+        term       TEXT,
+        referrer   TEXT,
+        landing    TEXT,
+        device     TEXT,
+        os         TEXT
+    );
+    CREATE INDEX IF NOT EXISTS visitors_first_seen ON visitors(first_seen);
+
+    -- 'view' (name — путь страницы), 'click' (name — элемент с data-track), 'code' (запрошен код входа), 'login' (вход, user_id)
+    CREATE TABLE IF NOT EXISTS web_events (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        vid        TEXT NOT NULL,
+        kind       TEXT NOT NULL,
+        name       TEXT,
+        user_id    INTEGER,
+        created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS web_events_time ON web_events(created_at);
+    CREATE INDEX IF NOT EXISTS web_events_vid ON web_events(vid, kind);
+    CREATE INDEX IF NOT EXISTS web_events_user ON web_events(user_id);
+
+    -- Итоги по московским суткам: metric + key → n (например, views + '/' → 120)
+    CREATE TABLE IF NOT EXISTS web_daily (
+        day    TEXT NOT NULL,
+        metric TEXT NOT NULL,
+        key    TEXT NOT NULL DEFAULT '',
+        n      INTEGER NOT NULL,
+        PRIMARY KEY (day, metric, key)
+    );
+`);
+// Первый источник клиента: переносится из visitors при первом входе в кабинет и хранится бессрочно
+addColumn('users', 'source', 'TEXT');
+addColumn('users', 'utm_medium', 'TEXT');
+addColumn('users', 'utm_campaign', 'TEXT');
+addColumn('users', 'referrer', 'TEXT');
+addColumn('users', 'landing', 'TEXT');
+addColumn('users', 'first_visit_at', 'TEXT');
 // Отметка пробного периода у платных клиентов (раньше не снималась при оплате) исключала их из напоминаний
 db.exec("UPDATE users SET trial_blocked = 0 WHERE plan_kind = 'paid' AND trial_blocked = 1");
 

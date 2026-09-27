@@ -52,7 +52,7 @@ function plansHtml(st) {
         <li>${devicesText(st.paidDeviceLimit)}</li>
         <li>Разовая оплата, без автосписаний</li>
     </ul>
-    <a class="btn ${p.badge ? 'btn--primary' : 'btn--ghost'} btn--block" href="/cabinet?plan=${encodeURIComponent(p.id)}">Оформить за ${rub(p.price)}</a>
+    <a class="btn ${p.badge ? 'btn--primary' : 'btn--ghost'} btn--block" href="/cabinet?plan=${encodeURIComponent(p.id)}" data-track="plan:${esc(p.id)}">Оформить за ${rub(p.price)}</a>
 </article>`;
         })
         .join('\n');
@@ -68,14 +68,14 @@ function vars() {
         year: String(new Date().getFullYear()),
         siteUrl: esc(config.siteUrl),
         supportEmail: esc(st.supportEmail),
-        supportEmailLink: `<a href="mailto:${esc(st.supportEmail)}">${esc(st.supportEmail)}</a>`,
-        supportTelegramLink: tg ? `<a href="https://t.me/${esc(tg)}" target="_blank" rel="noopener">@${esc(tg)}</a>` : '',
+        supportEmailLink: `<a href="mailto:${esc(st.supportEmail)}" data-track="support_email">${esc(st.supportEmail)}</a>`,
+        supportTelegramLink: tg ? `<a href="https://t.me/${esc(tg)}" target="_blank" rel="noopener" data-track="support_telegram">@${esc(tg)}</a>` : '',
         supportTelegramItem: tg
-            ? `<li><span>Telegram</span><a href="https://t.me/${esc(tg)}" target="_blank" rel="noopener">@${esc(tg)}</a></li>`
+            ? `<li><span>Telegram</span><a href="https://t.me/${esc(tg)}" target="_blank" rel="noopener" data-track="support_telegram">@${esc(tg)}</a></li>`
             : '',
         supportContactsText: tg
-            ? `на <a href="mailto:${esc(st.supportEmail)}">${esc(st.supportEmail)}</a> или в Telegram <a href="https://t.me/${esc(tg)}" target="_blank" rel="noopener">@${esc(tg)}</a>`
-            : `на <a href="mailto:${esc(st.supportEmail)}">${esc(st.supportEmail)}</a>`,
+            ? `на <a href="mailto:${esc(st.supportEmail)}" data-track="support_email">${esc(st.supportEmail)}</a> или в Telegram <a href="https://t.me/${esc(tg)}" target="_blank" rel="noopener" data-track="support_telegram">@${esc(tg)}</a>`
+            : `на <a href="mailto:${esc(st.supportEmail)}" data-track="support_email">${esc(st.supportEmail)}</a>`,
         docsDate: esc(st.docsDate),
         trialDaysText: daysText(st.trialDays),
         trialDevicesText: `${st.trialDeviceLimit} ${plural(st.trialDeviceLimit, DEVICE_WORDS)}`,

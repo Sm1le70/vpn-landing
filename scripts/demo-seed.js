@@ -1,6 +1,7 @@
 // Демо: история клиентов и платежей за год для раздела «Аналитика» (только демо-база).
 // npm run demo:seed — можно запускать и при работающем npm run demo; повторный запуск заменяет прежние данные.
 // Клиенты создаются без подписки в панели: их видно в аналитике и в списках, но не в заглушке Remnawave.
+// Визиты на сайт (id вида seedN) тоже заменяются; итоги посещений по дням (web_daily) пересчитываются целиком.
 const APP_PORT = Number(process.env.DEMO_PORT) || 3000;
 Object.assign(process.env, {
     DATABASE_PATH: APP_PORT === 3000 ? './data/demo.db' : `./data/demo-${APP_PORT}.db`,
@@ -11,6 +12,7 @@ Object.assign(process.env, {
 });
 const { db, tx } = await import('../src/db.js');
 const { listPlans } = await import('../src/settings.js');
+const { rollupAndCleanup } = await import('../src/tracking.js');
 
 const DOMAIN = 'seed.example.com';
 const DAY = 86_400_000;
@@ -31,6 +33,18 @@ const pick = (weighted) => {
 const plans = listPlans();
 const planWeights = plans.map((p) => [p, { m1: 5, m3: 3, m6: 1.5, m12: 1 }[p.id] ?? 1]);
 const PROMOS = ['WELCOME20', 'FRIEND15'];
+// Источники первого визита
+const SOURCES = [
+    [{ source: 'direct' }, 30],
+    [{ source: 'telegram', referrer: 't.me' }, 25],
+    [{ source: 'anna', medium: 'ref' }, 8],
+    [{ source: 'max', medium: 'ref' }, 7],
+    [{ source: 'tg_channel', medium: 'post', campaign: 'summer' }, 10],
+    [{ source: 'tg_channel', medium: 'post', campaign: 'autumn' }, 10],
+    [{ source: 'google', referrer: 'google.com' }, 10],
+];
+const DEVICES = [[['mobile', 'iOS'], 38], [['mobile', 'Android'], 32], [['desktop', 'Windows'], 18], [['desktop', 'macOS'], 7], [['tablet', 'iOS'], 5]];
+const LOOK_CLICKS = ['hero_pricing', 'faq:payment', 'faq:devices', 'faq:refund', 'faq:autopay', 'nav_pricing', 'support_telegram'];
 
 tx(() => {
     const old = db.prepare('SELECT id FROM users WHERE email LIKE ?').all(`%@${DOMAIN}`).map((u) => u.id);
@@ -39,6 +53,39 @@ tx(() => {
         db.prepare('DELETE FROM orders WHERE user_id = ?').run(id);
         db.prepare('DELETE FROM users WHERE id = ?').run(id);
     }
+    db.exec("DELETE FROM web_events WHERE vid LIKE 'seed%'; DELETE FROM visitors WHERE vid LIKE 'seed%'; DELETE FROM web_daily");
+    const visitorStmt = db.prepare(
+        'INSERT INTO visitors (vid, first_seen, source, medium, campaign, referrer, landing, device, os) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    );
+    const eventStmt = db.prepare('INSERT INTO web_events (vid, kind, name, user_id, created_at) VALUES (?, ?, ?, ?, ?)');
+    let visits = 0;
+    // Визит на сайт; client — клиент, который в этот раз вошёл в кабинет
+    const visit = (t0, client = null) => {
+        const vid = `seed${++visits}`;
+        const src = pick(SOURCES);
+        const [device, os] = pick(DEVICES);
+        visitorStmt.run(vid, t0, src.source, src.medium ?? null, src.campaign ?? null, src.referrer ?? null, '/', device, os);
+        let t = t0;
+        const ev = (kind, name = null, userId = null) => eventStmt.run(vid, kind, name, userId, (t += Math.floor(5_000 + rand() * 60_000)));
+        ev('view', '/');
+        if (client || chance(0.45)) ev('click', 'pricing_seen');
+        if (chance(0.3)) ev('click', LOOK_CLICKS[Math.floor(rand() * LOOK_CLICKS.length)]);
+        if (chance(0.06)) ev('view', chance(0.5) ? '/privacy' : '/terms');
+        if (client) {
+            ev('click', client.trial ? 'trial' : `plan:${pick(planWeights).id}`);
+            ev('view', '/cabinet');
+            ev('code');
+            ev('login', null, client.id);
+            return src;
+        }
+        if (chance(0.15)) {
+            ev('click', chance(0.3) ? 'trial' : `plan:${pick(planWeights).id}`);
+            ev('view', '/cabinet');
+            if (chance(0.45)) ev('code');
+        }
+        return src;
+    };
+
     const promoStmt = db.prepare("INSERT OR IGNORE INTO promo_codes (code, kind, value, note) VALUES (?, 'percent', ?, 'демо')");
     promoStmt.run('WELCOME20', 20);
     promoStmt.run('FRIEND15', 15);
@@ -56,6 +103,12 @@ tx(() => {
         const created = now - Math.floor(365 * DAY * (1 - Math.sqrt(rand())));
         const trial = chance(0.45) ? created + Math.floor(rand() * 2 * 3_600_000) : null;
         const { lastInsertRowid: userId } = userStmt.run(`seed-${i}@${DOMAIN}`, trial ? 'trial' : 'none', trial ? sql(trial) : null, sql(created));
+        const firstVisit = created - Math.floor((0.1 + rand() * 2) * 3_600_000);
+        const src = visit(firstVisit, { id: userId, trial });
+        db.prepare('UPDATE users SET source = ?, utm_medium = ?, utm_campaign = ?, referrer = ?, landing = ?, first_visit_at = ? WHERE id = ?')
+            .run(src.source, src.medium ?? null, src.campaign ?? null, src.referrer ?? null, '/', sql(firstVisit), userId);
+        // Посетители, которые так и не вошли в кабинет
+        for (let k = 0; k < 3; k++) visit(now - Math.floor(365 * DAY * (1 - Math.sqrt(rand()))));
 
         if (!chance(trial ? 0.5 : 0.4)) {
             // Зашёл, но не купил; часть бросила оплату
@@ -99,5 +152,7 @@ tx(() => {
         }
         db.prepare("UPDATE users SET plan_kind = 'paid' WHERE id = ?").run(userId);
     }
-    console.log(`Демо-данные: ${USERS} клиентов, ${orders} оплат за год (адреса *@${DOMAIN}). Откройте «Аналитику» в админке.`);
+    console.log(`Демо-данные: ${USERS} клиентов, ${orders} оплат, ${visits} посетителей за год (адреса *@${DOMAIN}). Откройте «Аналитику» в админке.`);
 });
+// Как на рабочем сайте: сутки сворачиваются в итоги, визиты старше 90 дней удаляются
+rollupAndCleanup(now);

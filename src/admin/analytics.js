@@ -5,7 +5,8 @@
 // заказ добавляет свои дни к текущему сроку, а если срок уже прошёл — к моменту оплаты.
 // Ручные продления и выдачи из админки, пробный период и возвращённые заказы в сроки не входят.
 import { db } from '../db.js';
-import { getPlan, getSettings } from '../settings.js';
+import { getPlan, getSettings, listPlans } from '../settings.js';
+import { sourceKey, trafficMetrics } from '../tracking.js';
 import { AdminActionError, DAY_MS, mskDate } from './service.js';
 
 // Заказы, которые приносят выручку и дни подписки (как в сводке)
@@ -49,8 +50,11 @@ function load() {
         .all()
         .map((o) => ({ ...o, created: toMs(o.created_at), paid: toMs(o.paid_at) }));
     const users = new Map(
-        db.prepare('SELECT id, created_at, trial_used_at FROM users').all()
-            .map((u) => [u.id, { id: u.id, created: toMs(u.created_at), trial: toMs(u.trial_used_at), orders: [], paidOrders: [] }]),
+        db.prepare('SELECT id, created_at, trial_used_at, source, utm_campaign FROM users').all()
+            .map((u) => [u.id, {
+                id: u.id, created: toMs(u.created_at), trial: toMs(u.trial_used_at),
+                sourceKey: u.source ? sourceKey(u.source, u.utm_campaign) : '', orders: [], paidOrders: [],
+            }]),
     );
     for (const o of orders) users.get(o.user_id)?.orders.push(o);
     for (const u of users.values()) {
@@ -306,22 +310,81 @@ function cohorts(data, now) {
         });
 }
 
+// Посещения сайта (src/tracking.js). exact = false — период старше 90 дней: посетители сложены по дням
+// (повторные визиты в разные дни считаются дважды), воронки посетителей нет.
+function traffic(range, now) {
+    const { exact, metrics, funnel } = trafficMetrics(range[0], range[1], now);
+    const get = (metric, key = '') => metrics.get(`${metric}|${key}`) ?? 0;
+    const list = (metric) =>
+        [...metrics]
+            .filter(([k]) => k.startsWith(`${metric}|`))
+            .map(([k, n]) => ({ key: k.slice(metric.length + 1), n }))
+            .sort((a, b) => b.n - a.n);
+    const sum = (metric) => list(metric).reduce((s, x) => s + x.n, 0);
+    return {
+        exact,
+        visitors: get('visitors'),
+        newVisitors: sum('new_visitors'),
+        views: sum('views'),
+        pages: list('views'),
+        clicks: list('clicks').map((c) => ({ name: c.key, clicks: c.n, visitors: get('click_visitors', c.key) })),
+        pricingSeen: get('click_visitors', 'pricing_seen'),
+        devices: list('device'),
+        os: list('os'),
+        steps: { cabinet: get('step', 'cabinet'), code: get('step', 'code'), login: get('step', 'login') },
+        funnel,
+        bySource: list('new_visitors'),
+    };
+}
+
+// Источники: новые посетители за период и клиенты, впервые вошедшие за период, с их оплатами и выручкой (по сегодня).
+// Клиенты без источника — пришедшие до появления счётчика или без cookie.
+function sources(data, range, bySource) {
+    const rows = new Map();
+    const row = (key) => {
+        if (!rows.has(key)) {
+            const [source, campaign] = key ? key.split('|') : [null, null];
+            rows.set(key, { source, campaign: campaign || null, visitors: 0, clients: 0, paid: 0, revenue: 0 });
+        }
+        return rows.get(key);
+    };
+    for (const { key, n } of bySource) row(key).visitors += n;
+    for (const u of data.users.values()) {
+        if (!inRange(u.created, range)) continue;
+        const r = row(u.sourceKey);
+        r.clients++;
+        if (u.paidOrders.length) r.paid++;
+        r.revenue = round2(r.revenue + u.paidOrders.reduce((s, o) => s + o.amount, 0));
+    }
+    return [...rows.values()]
+        .map((r) => ({ ...r, conversion: ratio(r.paid, r.visitors) }))
+        .sort((a, b) => b.revenue - a.revenue || b.visitors - a.visitors || b.clients - a.clients);
+}
+
 export function analytics(query = {}, now = Date.now()) {
     const period = parsePeriod(query, now);
     const { renewGraceDays } = getSettings();
     const data = load();
     const block = (range) => ({
+        traffic: traffic(range, now),
         money: money(data, range, now),
         funnel: funnel(data, range),
         abandoned: abandoned(data, range),
         retention: retention(data, range, now, renewGraceDays),
         refunds: refunds(data, range),
     });
+    const current = block(period.cur);
+    const previous = block(period.prev);
+    const bySource = current.traffic.bySource;
+    delete current.traffic.bySource;
+    delete previous.traffic.bySource;
     return {
         period: { from: period.from, to: period.to, days: period.days },
         graceDays: renewGraceDays,
-        current: block(period.cur),
-        previous: block(period.prev),
+        planTitles: Object.fromEntries(listPlans({ includeHidden: true }).map((p) => [p.id, p.title])),
+        current,
+        previous,
+        sources: sources(data, period.cur, bySource),
         plans: plans(data, period.cur),
         promo: promo(data, period.cur),
         reminders: reminders(data, period.cur, now, renewGraceDays),

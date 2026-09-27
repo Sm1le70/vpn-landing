@@ -492,6 +492,25 @@
     const aTile = (label, value, sub = '', d = '', hint = '') =>
         `<div class="tile"${hint ? ` title="${esc(hint)}"` : ''}><small>${label}</small><b>${value}</b>${d}${sub ? `<span>${sub}</span>` : ''}</div>`;
     const nPlural = (n, forms) => `${n} ${plural(n, forms)}`;
+    // Названия элементов из data-track (views/*.html, src/pages.js)
+    const CLICK_LABELS = {
+        hero_pricing: 'Первый экран: «Выбрать тариф»',
+        hero_cabinet: 'Первый экран: «Войти в кабинет»',
+        nav_pricing: 'Меню: «Тарифы»',
+        nav_cabinet: 'Шапка: «Личный кабинет»',
+        cta_pricing: 'Низ страницы: «Выбрать тариф»',
+        trial: '«Попробовать бесплатно»',
+        support_telegram: 'Поддержка в Telegram',
+        support_email: 'Письмо в поддержку',
+        'faq:result': 'Вопрос: что я получаю после оплаты',
+        'faq:autopay': 'Вопрос: автоматические списания',
+        'faq:devices': 'Вопрос: сколько устройств',
+        'faq:payment': 'Вопрос: способы оплаты',
+        'faq:refund': 'Вопрос: возврат денег',
+        'faq:support': 'Вопрос: связь с поддержкой',
+    };
+    const DEVICE_LABELS = { mobile: 'Телефон', tablet: 'Планшет', desktop: 'Компьютер' };
+    const PAGE_LABELS = { '/': 'Главная', '/cabinet': 'Личный кабинет', '/terms': 'Соглашение', '/privacy': 'Политика конфиденциальности', '/contacts': 'Контакты' };
 
     VIEWS.analytics = async (view, r) => {
         const q = { from: r.query.get('from') || '', to: r.query.get('to') || '' };
@@ -502,22 +521,31 @@
         const prevFrom = mskDay(Date.parse(`${a.period.from}T12:00:00Z`) - a.period.days * 86_400_000);
         const prevTo = mskDay(Date.parse(`${a.period.from}T12:00:00Z`) - 86_400_000);
 
-        const f = c.funnel;
-        // Пробный период — не шаг воронки: заказать можно и без него
-        const steps = [
-            ['Вошли в кабинет', f.registered],
-            ['Создали заказ', f.ordered],
-            ['Оплатили', f.paid],
-        ];
-        const funnelRows = steps.map(([label, n], i) => {
-            const share = f.registered ? n / f.registered : 0;
+        const funnelBars = (steps) => steps.map(([label, n], i) => {
+            const top = steps[0][1];
+            const share = top ? n / top : 0;
             const step = i && steps[i - 1][1] ? ` · ${pct(n / steps[i - 1][1])} от предыдущего шага` : '';
             return `<div class="funnel-row">
                 <div class="funnel-label">${label}</div>
                 <div class="funnel-track"><div class="funnel-bar" style="width:${Math.max(share * 100, n ? 1 : 0)}%"></div></div>
-                <div class="funnel-value"><b>${n}</b> <span class="muted small">${i ? pct(f.registered ? share : null) : ''}${step}</span></div>
+                <div class="funnel-value"><b>${n}</b> <span class="muted small">${i ? pct(top ? share : null) : ''}${step}</span></div>
             </div>`;
         }).join('');
+        const f = c.funnel;
+        // Пробный период — не шаг воронки: заказать можно и без него
+        const funnelRows = funnelBars([['Вошли в кабинет', f.registered], ['Создали заказ', f.ordered], ['Оплатили', f.paid]]);
+
+        const t = c.traffic, pt = p.traffic;
+        const share = (n, of) => (of ? n / of : null);
+        const clickLabel = (n) => CLICK_LABELS[n] ?? (n.startsWith('plan:') ? `Тариф «${a.planTitles[n.slice(5)] ?? n.slice(5)}»` : n);
+        const sourceLabel = (s) => (s.source == null
+            ? '<span title="Клиенты, пришедшие до появления счётчика или без cookie">Неизвестно</span>'
+            : `${esc(s.source === 'direct' ? 'Прямые заходы' : s.source)}${s.campaign ? ` <span class="muted small">· ${esc(s.campaign)}</span>` : ''}`);
+        const vf = t.funnel;
+        const shareRows = (list, labels) => {
+            const total = list.reduce((x, r) => x + r.n, 0);
+            return list.map((r) => `<tr><td>${esc(labels[r.key] ?? r.key)}</td><td class="num">${r.n}</td><td class="num muted">${pct(share(r.n, total))}</td></tr>`).join('');
+        };
 
         const ret = c.retention, pret = p.retention;
         const maxK = Math.max(0, ...a.cohorts.map((x) => x.retention.length));
@@ -546,6 +574,48 @@
             </div>
             <p class="muted small analytics-sub">${fmtPeriod(a.period.from, a.period.to)} · сравнение с ${fmtPeriod(prevFrom, prevTo)}. Сутки — по Москве.</p>
 
+            <h2 class="section-h">Сайт</h2>
+            ${t.exact ? '' : '<div class="note" style="margin-bottom:12px">Период начинается раньше, чем 90 дней назад: подробные данные о визитах за это время удалены, показаны итоги по дням. Посетитель, заходивший в разные дни, посчитан несколько раз; воронки посетителей нет.</div>'}
+            <div class="tiles">
+                ${aTile('Посетители', t.visitors, `новых: ${t.newVisitors}`, delta(t.visitors, pt.visitors))}
+                ${aTile('Просмотры страниц', t.views, t.visitors ? `${(t.views / t.visitors).toLocaleString('ru-RU', { maximumFractionDigits: 1 })} на посетителя` : '', delta(t.views, pt.views))}
+                ${aTile('Долистали до тарифов', pct(share(t.pricingSeen, t.visitors)), `${t.pricingSeen} из ${t.visitors}`, delta(share(t.pricingSeen, t.visitors), share(pt.pricingSeen, pt.visitors), { kind: 'rate' }))}
+                ${aTile('Открыли кабинет', pct(share(t.steps.cabinet, t.visitors)), `${t.steps.cabinet} · запросили код: ${t.steps.code}`, delta(share(t.steps.cabinet, t.visitors), share(pt.steps.cabinet, pt.visitors), { kind: 'rate' }))}
+            </div>
+            ${vf ? `<div class="card">
+                <div class="card-head"><h2>Воронка с сайта</h2><span class="muted small">Посетители, впервые пришедшие за период; дальнейшие шаги — по сегодняшний день, пока у посетителя сохранилась cookie</span></div>
+                <div class="funnel">${funnelBars([['Новые посетители', vf.visitors], ['Открыли кабинет', vf.cabinet], ['Запросили код', vf.code], ['Вошли', vf.login], ['Оплатили', vf.paid]])}</div>
+            </div>` : ''}
+            <div class="grid-2">
+                <div class="card">
+                    <div class="card-head"><h2>Источники</h2><span class="muted small">Первый переход: utm-метки, ?ref=, сайт, с которого пришли</span></div>
+                    <div class="table-wrap"><table class="t"><thead><tr><th>Источник</th><th class="num" title="Новые посетители за период">Посетители</th><th class="num" title="Впервые вошли в кабинет за период">Клиенты</th><th class="num">Оплатили</th><th class="num" title="Вся выручка от этих клиентов по сегодня">Выручка</th><th class="num" title="Оплатившие от посетителей">Конверсия</th></tr></thead><tbody>
+                    ${a.sources.map((x) => `<tr><td>${sourceLabel(x)}</td><td class="num">${x.visitors}</td><td class="num">${x.clients}</td><td class="num">${x.paid}</td><td class="num">${rub(x.revenue)}</td><td class="num">${pct(x.conversion)}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">Визитов пока нет</td></tr>'}
+                    </tbody></table></div>
+                </div>
+                <div class="card">
+                    <h2>Клики</h2>
+                    <div class="table-wrap"><table class="t"><thead><tr><th>Элемент</th><th class="num">Кликов</th><th class="num">Посетителей</th><th class="num">Доля посетителей</th></tr></thead><tbody>
+                    ${t.clicks.filter((x) => x.name !== 'pricing_seen').map((x) => `<tr><td>${esc(clickLabel(x.name))}</td><td class="num">${x.clicks}</td><td class="num">${x.visitors}</td><td class="num">${pct(share(x.visitors, t.visitors))}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">Кликов пока нет</td></tr>'}
+                    </tbody></table></div>
+                </div>
+            </div>
+            <div class="grid-2">
+                <div class="card">
+                    <h2>Устройства новых посетителей</h2>
+                    <div class="table-wrap"><table class="t"><tbody>
+                    ${shareRows(t.devices, DEVICE_LABELS) || '<tr><td class="empty">Нет данных</td></tr>'}
+                    ${t.os.length ? `<tr><th colspan="3">Система</th></tr>${shareRows(t.os, { other: 'Другая' })}` : ''}
+                    </tbody></table></div>
+                </div>
+                <div class="card">
+                    <h2>Страницы</h2>
+                    <div class="table-wrap"><table class="t"><thead><tr><th>Страница</th><th class="num">Просмотров</th><th class="num">Доля</th></tr></thead><tbody>
+                    ${shareRows(t.pages, PAGE_LABELS) || '<tr><td colspan="3" class="empty">Просмотров пока нет</td></tr>'}
+                    </tbody></table></div>
+                </div>
+            </div>
+
             <h2 class="section-h">Деньги</h2>
             <div class="tiles">
                 ${aTile('Выручка', rub(m.revenue), nPlural(m.payments, ['оплата', 'оплаты', 'оплат']), delta(m.revenue, pm.revenue))}
@@ -557,7 +627,7 @@
             </div>
 
             <div class="card">
-                <div class="card-head"><h2>Воронка</h2><span class="muted small">Клиенты, впервые вошедшие в кабинет за период; их заказы и оплаты — по сегодняшний день</span></div>
+                <div class="card-head"><h2>Воронка кабинета</h2><span class="muted small">Клиенты, впервые вошедшие в кабинет за период; их заказы и оплаты — по сегодняшний день</span></div>
                 <div class="funnel">${funnelRows}</div>
                 <div class="tiles tiles--inner">
                     ${aTile('Конверсия в оплату', pct(f.registered ? f.paid / f.registered : null), '', delta(f.registered ? f.paid / f.registered : null, p.funnel.registered ? p.funnel.paid / p.funnel.registered : null, { kind: 'rate' }))}
@@ -772,6 +842,8 @@
                     </div>` : ''}
                     <dl class="kv" style="margin-top:16px">
                         <dt>Регистрация</dt><dd>${fmtDateTime(u.createdAt)}</dd>
+                        ${u.source ? `<dt>Источник</dt><dd>${esc(u.source.source === 'direct' ? 'прямой заход' : u.source.source)}${[u.source.medium, u.source.campaign].filter(Boolean).map((x) => ` · ${esc(x)}`).join('')}
+                            <div class="muted small">${u.source.referrer ? `с ${esc(u.source.referrer)}, ` : ''}первый визит ${fmtDateTime(u.source.firstVisitAt)}</div></dd>` : ''}
                         <dt>Пробный период</dt><dd>${u.trialUsedAt ? `использован ${fmtDate(u.trialUsedAt)}` : 'не использован'}</dd>
                         ${(d.telegram || []).length ? `<dt>Telegram</dt><dd>${d.telegram.map((t) => `${t.username ? `<a href="https://t.me/${esc(t.username)}" target="_blank" rel="noopener">@${esc(t.username)}</a>` : esc(t.name || '')} <span class="muted mono">${esc(t.tgUserId)}</span>`).join('<br>')}</dd>` : ''}
                     </dl>
