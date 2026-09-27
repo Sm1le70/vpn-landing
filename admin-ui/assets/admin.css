@@ -92,6 +92,27 @@ label.field > span { color: var(--muted); font-size: 12px; font-weight: 600; }
 .tile b { display: block; font-size: 24px; font-weight: 750; margin-top: 2px; }
 .tile span { color: var(--muted); font-size: 12px; }
 .tile--warn { border-color: rgba(251, 191, 36, .45); }
+/* ---------- Аналитика ---------- */
+.tile .delta { display: block; font-size: 12px; font-weight: 700; color: var(--muted); margin: 2px 0; }
+.tile .delta--good { color: var(--ok); }
+.tile .delta--bad { color: var(--bad); }
+.tiles--inner { margin: 16px 0 0; }
+.tiles--inner .tile { background: var(--surface-2); }
+.section-h { margin: 22px 0 10px; }
+.analytics-sub { margin: -8px 0 8px; }
+.period input[type=date] { width: auto; }
+.funnel { display: grid; gap: 10px; }
+.funnel-row { display: grid; grid-template-columns: 190px 1fr 230px; gap: 12px; align-items: center; }
+.funnel-label { color: var(--text-2); }
+.funnel-track { height: 12px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
+.funnel-bar { height: 100%; background: var(--accent); border-radius: 0 4px 4px 0; }
+.funnel-value b { font-variant-numeric: tabular-nums; }
+table.cohorts td.heat { color: var(--text); border-bottom: 2px solid var(--surface); border-left: 2px solid var(--surface); }
+table.cohorts td.heat--partial { font-style: italic; }
+b.text { color: var(--text); }
+@media (max-width: 900px) {
+    .funnel-row { grid-template-columns: 1fr; gap: 4px; }
+}
 
 /* ---------- Таблицы ---------- */
 .table-wrap { overflow-x: auto; }

@@ -23,6 +23,7 @@ import {
     validateLogin,
 } from './auth.js';
 import * as svc from './service.js';
+import { analytics } from './analytics.js';
 import * as support from './support.js';
 import { createPromo, listPromos, updatePromo } from '../promo.js';
 import { readCookie } from '../auth.js';
@@ -143,6 +144,7 @@ export function adminRouter() {
 
     // --- статистика ---
     api.get('/stats', adminOnly, wrap(() => svc.stats()));
+    api.get('/analytics', adminOnly, wrap((req) => analytics({ from: req.query.from, to: req.query.to })));
 
     // --- пользователи ---
     const num = (v, d) => (Number.isInteger(Number(v)) && Number(v) > 0 ? Number(v) : d);

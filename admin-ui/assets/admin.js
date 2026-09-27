@@ -122,6 +122,7 @@
     // ---------- Роутер ----------
     const NAV = [
         { path: 'dashboard', title: 'Сводка', admin: true },
+        { path: 'analytics', title: 'Аналитика', admin: true },
         { path: 'users', title: 'Пользователи' },
         { path: 'orders', title: 'Платежи' },
         { path: 'support', title: 'Обращения' },
@@ -453,6 +454,181 @@
             el.querySelectorAll('.bar.hover').forEach((b) => b.classList.remove('hover'));
         });
     }
+
+    // --- Аналитика ---
+    // Московская дата (YYYY-MM-DD) момента ms — как сутки на сервере
+    const mskDay = (ms) => new Date(ms + 3 * 3_600_000).toISOString().slice(0, 10);
+    const pct = (r) => (r == null ? '—' : `${(r * 100).toLocaleString('ru-RU', { maximumFractionDigits: r < 0.1 ? 1 : 0 })}%`);
+    const fmtDuration = (ms) => {
+        if (ms == null) return '—';
+        const h = ms / 3_600_000;
+        if (h < 1) return 'меньше часа';
+        if (h < 48) return `${Math.round(h)} ч`;
+        return `${Math.round(h / 24)} дн.`;
+    };
+    const fmtMonth = (key) => new Date(`${key}-01T00:00:00Z`).toLocaleDateString('ru-RU', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+    const fmtPeriod = (from, to) => {
+        const d = (s) => new Date(`${s}T00:00:00Z`).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+        return from === to ? d(from) : `${d(from)} — ${d(to)}`;
+    };
+    // Изменение к предыдущему периоду. kind: 'num' — в процентах, 'rate' — в процентных пунктах;
+    // lowerIsBetter — рост показателя плохой (отток, возвраты)
+    function delta(cur, prev, { kind = 'num', lowerIsBetter = false } = {}) {
+        if (cur == null || prev == null) return '';
+        let diff, text;
+        if (kind === 'rate') {
+            diff = (cur - prev) * 100;
+            if (Math.abs(diff) < 0.05) return '<span class="delta">без изменений</span>';
+            text = `${Math.abs(diff).toLocaleString('ru-RU', { maximumFractionDigits: 1 })} п.п.`;
+        } else {
+            if (!prev) return cur ? '<span class="delta">раньше не было</span>' : '';
+            diff = ((cur - prev) / prev) * 100;
+            if (Math.abs(diff) < 0.5) return '<span class="delta">без изменений</span>';
+            text = `${Math.round(Math.abs(diff)).toLocaleString('ru-RU')}%`;
+        }
+        const good = diff > 0 !== lowerIsBetter;
+        return `<span class="delta delta--${good ? 'good' : 'bad'}" title="К предыдущему периоду">${diff > 0 ? '▲' : '▼'} ${text}</span>`;
+    }
+    const aTile = (label, value, sub = '', d = '', hint = '') =>
+        `<div class="tile"${hint ? ` title="${esc(hint)}"` : ''}><small>${label}</small><b>${value}</b>${d}${sub ? `<span>${sub}</span>` : ''}</div>`;
+    const nPlural = (n, forms) => `${n} ${plural(n, forms)}`;
+
+    VIEWS.analytics = async (view, r) => {
+        const q = { from: r.query.get('from') || '', to: r.query.get('to') || '' };
+        const a = await api('GET', `analytics?${qs(q)}`);
+        const { current: c, previous: p } = a;
+        const today = mskDay(Date.now());
+        const presets = [7, 30, 90].map((n) => ({ n, from: mskDay(Date.now() - (n - 1) * 86_400_000), to: today }));
+        const prevFrom = mskDay(Date.parse(`${a.period.from}T12:00:00Z`) - a.period.days * 86_400_000);
+        const prevTo = mskDay(Date.parse(`${a.period.from}T12:00:00Z`) - 86_400_000);
+
+        const f = c.funnel;
+        // Пробный период — не шаг воронки: заказать можно и без него
+        const steps = [
+            ['Вошли в кабинет', f.registered],
+            ['Создали заказ', f.ordered],
+            ['Оплатили', f.paid],
+        ];
+        const funnelRows = steps.map(([label, n], i) => {
+            const share = f.registered ? n / f.registered : 0;
+            const step = i && steps[i - 1][1] ? ` · ${pct(n / steps[i - 1][1])} от предыдущего шага` : '';
+            return `<div class="funnel-row">
+                <div class="funnel-label">${label}</div>
+                <div class="funnel-track"><div class="funnel-bar" style="width:${Math.max(share * 100, n ? 1 : 0)}%"></div></div>
+                <div class="funnel-value"><b>${n}</b> <span class="muted small">${i ? pct(f.registered ? share : null) : ''}${step}</span></div>
+            </div>`;
+        }).join('');
+
+        const ret = c.retention, pret = p.retention;
+        const maxK = Math.max(0, ...a.cohorts.map((x) => x.retention.length));
+        const cohortRows = a.cohorts.map((co) => `<tr>
+            <td class="nowrap">${fmtMonth(co.month)}</td><td class="num">${co.size}</td><td class="num">${rub(co.ltv)}</td>
+            ${Array.from({ length: maxK }, (_, i) => {
+                const cell = co.retention[i];
+                if (!cell) return '<td></td>';
+                const alpha = (0.08 + cell.rate * 0.62).toFixed(2);
+                return `<td class="num heat${cell.partial ? ' heat--partial' : ''}" style="background:rgba(91,140,255,${alpha})"
+                    title="${fmtMonth(co.month)}: ${cell.partial ? 'на сегодня' : `в конце ${cell.month}-го месяца`} с подпиской ${pct(cell.rate)}">${pct(cell.rate)}</td>`;
+            }).join('')}
+        </tr>`).join('');
+
+        const m = c.money, pm = p.money;
+        const ab = c.abandoned, rf = c.refunds;
+        const rem = a.reminders;
+        view.innerHTML = `
+            <div class="page-head"><h1>Аналитика</h1>
+                <form class="toolbar period" id="period">
+                    <div class="chips">${presets.map((x) => `<button type="button" class="chip ${x.from === a.period.from && x.to === a.period.to ? 'active' : ''}" data-from="${x.from}" data-to="${x.to}">${x.n} дней</button>`).join('')}</div>
+                    <input type="date" name="from" value="${a.period.from}" max="${today}" aria-label="С">
+                    <input type="date" name="to" value="${a.period.to}" max="${today}" aria-label="По">
+                    <button class="btn btn--sm">Показать</button>
+                </form>
+            </div>
+            <p class="muted small analytics-sub">${fmtPeriod(a.period.from, a.period.to)} · сравнение с ${fmtPeriod(prevFrom, prevTo)}. Сутки — по Москве.</p>
+
+            <h2 class="section-h">Деньги</h2>
+            <div class="tiles">
+                ${aTile('Выручка', rub(m.revenue), nPlural(m.payments, ['оплата', 'оплаты', 'оплат']), delta(m.revenue, pm.revenue))}
+                ${aTile('Средний чек', m.avgCheck == null ? '—' : rub(m.avgCheck), '', delta(m.avgCheck, pm.avgCheck))}
+                ${aTile('Выручка на платящего', m.arppu == null ? '—' : rub(m.arppu), nPlural(m.payers, ['клиент', 'клиента', 'клиентов']), delta(m.arppu, pm.arppu))}
+                ${aTile('Новые клиенты', m.newCustomers, `${rub(m.newRevenue)} · повторные ${rub(m.repeatRevenue)}`, delta(m.newCustomers, pm.newCustomers), 'Клиенты, оплатившие впервые')}
+                ${aTile('Выручка в пересчёте на месяц', rub(m.monthlyEnd), `в начале периода ${rub(m.monthlyStart)}`, delta(m.monthlyEnd, m.monthlyStart), 'Цена действующих оплаченных подписок, разложенная по дням, × 30: сколько база клиентов приносит в месяц')}
+                ${aTile('До первой оплаты', fmtDuration(m.timeToFirstPay), 'медиана, от первого входа', delta(m.timeToFirstPay, pm.timeToFirstPay, { lowerIsBetter: true }))}
+            </div>
+
+            <div class="card">
+                <div class="card-head"><h2>Воронка</h2><span class="muted small">Клиенты, впервые вошедшие в кабинет за период; их заказы и оплаты — по сегодняшний день</span></div>
+                <div class="funnel">${funnelRows}</div>
+                <div class="tiles tiles--inner">
+                    ${aTile('Конверсия в оплату', pct(f.registered ? f.paid / f.registered : null), '', delta(f.registered ? f.paid / f.registered : null, p.funnel.registered ? p.funnel.paid / p.funnel.registered : null, { kind: 'rate' }))}
+                    ${aTile('Брошенные оплаты', pct(ab.rate), `${ab.canceled} из ${ab.created - ab.pending} ${plural(ab.created - ab.pending, ['заказа', 'заказов', 'заказов'])}${ab.pending ? `, ещё ждут оплаты: ${ab.pending}` : ''}`, delta(ab.rate, p.abandoned.rate, { kind: 'rate', lowerIsBetter: true }), 'Заказы, созданные за период, по которым оплата не прошла')}
+                    ${aTile('Бросили оплату', nPlural(ab.users, ['клиент', 'клиента', 'клиентов']), `из них потом оплатили: ${ab.recovered}`)}
+                    ${aTile('Взяли пробный период', f.trial, `${pct(f.registered ? f.trial / f.registered : null)} вошедших`)}
+                </div>
+            </div>
+
+            <h2 class="section-h">Удержание</h2>
+            <div class="tiles">
+                ${aTile('Продлили вовремя', pct(ret.renewalRate), `${ret.renewed} из ${ret.due} окончаний${ret.waiting ? ` · ещё ждём: ${ret.waiting}` : ''}`, delta(ret.renewalRate, pret.renewalRate, { kind: 'rate' }), `Оплатили не позже ${a.graceDays} дн. после окончания оплаченного срока (меняется в «Настройках»)`)}
+                ${aTile('Вернулись позже', ret.returned, 'оплатили после перерыва')}
+                ${aTile('Ушли', ret.churned, 'не оплатили после окончания', delta(ret.churned, pret.churned, { lowerIsBetter: true }))}
+                ${aTile('Отток', pct(ret.churnRate), `из ${ret.activeAtStart} с подпиской на начало`, delta(ret.churnRate, pret.churnRate, { kind: 'rate', lowerIsBetter: true }))}
+                ${aTile('Пробный → оплата', pct(ret.trialRate), `${ret.trialConverted} из ${ret.trials}, начавших пробный за период`, delta(ret.trialRate, pret.trialRate, { kind: 'rate' }))}
+            </div>
+
+            <div class="card">
+                <div class="card-head"><h2>Когорты по месяцу первой оплаты</h2><span class="muted small">Доля клиентов с оплаченной подпиской в конце каждого следующего месяца; курсив — месяц ещё идёт</span></div>
+                <div class="table-wrap"><table class="t cohorts"><thead><tr><th>Месяц</th><th class="num">Клиентов</th><th class="num" title="Вся выручка от клиентов когорты на одного клиента">LTV</th>
+                    ${Array.from({ length: maxK }, (_, i) => `<th class="num">${i + 1} мес.</th>`).join('')}</tr></thead>
+                <tbody>${cohortRows || `<tr><td colspan="${3 + maxK}" class="empty">Оплат пока нет</td></tr>`}</tbody></table></div>
+            </div>
+
+            <div class="grid-2">
+                <div class="card">
+                    <h2>Тарифы</h2>
+                    <div class="table-wrap"><table class="t"><thead><tr><th>Тариф</th><th class="num">Оплат</th><th class="num">Повторных</th><th class="num">Сумма</th></tr></thead><tbody>
+                    ${a.plans.byPlan.map((x) => `<tr><td>${esc(x.planTitle)}</td><td class="num">${x.count}</td><td class="num">${x.repeat}</td><td class="num">${rub(x.sum)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">Оплат нет</td></tr>'}
+                    </tbody></table></div>
+                </div>
+                <div class="card">
+                    <h2>Смена тарифа при продлении</h2>
+                    <div class="table-wrap"><table class="t"><thead><tr><th>Было</th><th>Стало</th><th class="num">Оплат</th></tr></thead><tbody>
+                    ${a.plans.transitions.map((x) => `<tr><td>${esc(x.from)}</td><td>${esc(x.to)} ${x.toDays > x.fromDays ? '<span class="pill pill--ok">длиннее</span>' : x.toDays < x.fromDays ? '<span class="pill pill--warn">короче</span>' : ''}</td><td class="num">${x.count}</td></tr>`).join('') || '<tr><td colspan="3" class="empty">Повторных оплат нет</td></tr>'}
+                    </tbody></table></div>
+                </div>
+            </div>
+
+            <div class="grid-2">
+                <div class="card">
+                    <div class="card-head"><h2>Промокоды</h2><span class="muted small">${a.promo.codes.length ? `${pct(a.promo.revenueShare)} выручки, скидки ${rub(a.promo.discount)}` : ''}</span></div>
+                    <div class="table-wrap"><table class="t"><thead><tr><th>Код</th><th class="num">Оплат</th><th class="num" title="Первая оплата клиента">Новых</th><th class="num">Выручка</th><th class="num">Скидка</th></tr></thead><tbody>
+                    ${a.promo.codes.map((x) => `<tr><td class="mono">${esc(x.code)}</td><td class="num">${x.uses}</td><td class="num">${x.newCustomers}</td><td class="num">${rub(x.revenue)}</td><td class="num">${rub(x.discount)}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">Оплат с промокодом нет</td></tr>'}
+                    </tbody></table></div>
+                </div>
+                <div class="card">
+                    <h2>Напоминания об окончании</h2>
+                    <p class="muted small">Оплатили после напоминания (до окончания или в течение ${a.graceDays} дн. после): <b class="text">${pct(rem.rate)}</b> — ${rem.renewed} из ${rem.episodes}${rem.waiting ? `, ещё ждём: ${rem.waiting}` : ''}. Пробный период тоже входит.</p>
+                    <div class="table-wrap"><table class="t"><thead><tr><th>Напоминание</th><th class="num">Отправлено</th><th class="num">Оплатили в течение суток</th></tr></thead><tbody>
+                    ${rem.byThreshold.map((x) => `<tr><td>за ${nPlural(x.daysBefore, ['день', 'дня', 'дней'])}</td><td class="num">${x.sent}</td><td class="num">${x.paidWithinDay} <span class="muted small">(${pct(x.sent ? x.paidWithinDay / x.sent : null)})</span></td></tr>`).join('') || '<tr><td colspan="3" class="empty">Напоминаний не было</td></tr>'}
+                    </tbody></table></div>
+                </div>
+            </div>
+
+            <h2 class="section-h">Возвраты</h2>
+            <div class="tiles">
+                ${aTile('Возвраты', rub(rf.refunded.sum), `${pct(rf.refunded.rate)} от оплаченного · ${nPlural(rf.refunded.count, ['заказ', 'заказа', 'заказов'])}`, delta(rf.refunded.sum, p.refunds.refunded.sum, { lowerIsBetter: true }), 'Заказы, оплаченные за период, по которым сделан возврат')}
+                ${aTile('Chargeback', rub(rf.chargeback.sum), `${pct(rf.chargeback.rate)} от оплаченного · ${nPlural(rf.chargeback.count, ['заказ', 'заказа', 'заказов'])}`, delta(rf.chargeback.sum, p.refunds.chargeback.sum, { lowerIsBetter: true }), 'Заказы, оплаченные за период и оспоренные через банк')}
+            </div>
+            <p class="muted small">Сроки подписок восстановлены по оплаченным заказам; ручные продления из админки, пробный период и возвращённые заказы не учитываются.</p>`;
+
+        const form = document.getElementById('period');
+        const go = (from, to) => (location.hash = `#/analytics?${qs({ from, to })}`);
+        form.querySelectorAll('[data-from]').forEach((b) => (b.onclick = () => go(b.dataset.from, b.dataset.to)));
+        form.onsubmit = (e) => {
+            e.preventDefault();
+            go(form.from.value, form.to.value);
+        };
+    };
 
     function bindRowLinks(root) {
         root.querySelectorAll('[data-href]').forEach((row) => {
@@ -1232,6 +1408,9 @@
                     <label class="check"><input type="checkbox" name="trialEnabled" ${s.trialEnabled ? 'checked' : ''}> Пробный период включён</label>
                     <div class="form-row">${numf('trialDays', 'Дней пробного периода', 1, 30)}${numf('trialDeviceLimit', 'Устройств на пробном периоде', 1, 10)}</div>
                 </div></div>
+                <div class="card"><h2>Аналитика</h2><div class="form">
+                    <div class="form-row">${numf('renewGraceDays', 'Продление вовремя: дней после окончания', 0, 60, 'Если клиент оплатил не позже стольких дней после окончания срока, в «Аналитике» это продление, а не возврат после перерыва.')}</div>
+                </div></div>
                 <div class="actions"><button class="btn btn--primary">Сохранить</button></div>
             </form>`;
         const f = view.querySelector('#sf');
@@ -1242,7 +1421,7 @@
             data.telegramEmailNotify = f.telegramEmailNotify.checked;
             data.telegramAlerts = f.telegramAlerts.checked;
             data.remindersEnabled = f.remindersEnabled.checked;
-            for (const k of ['paidDeviceLimit', 'trialDays', 'trialDeviceLimit']) data[k] = Number(data[k]);
+            for (const k of ['paidDeviceLimit', 'trialDays', 'trialDeviceLimit', 'renewGraceDays']) data[k] = Number(data[k]);
             try {
                 await api('PUT', 'settings', data);
                 state.me = await api('GET', 'me');

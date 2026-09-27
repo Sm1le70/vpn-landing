@@ -83,8 +83,9 @@ async function remindUser(user, thresholds, now) {
     return true;
 }
 
+// Отметки хранятся год: по ним аналитика считает, кто продлил подписку после напоминания
 export function cleanupReminders() {
-    db.prepare("DELETE FROM expiry_reminders WHERE expire_at < ?").run(new Date(Date.now() - 30 * DAY_MS).toISOString());
+    db.prepare("DELETE FROM expiry_reminders WHERE expire_at < ?").run(new Date(Date.now() - 400 * DAY_MS).toISOString());
 }
 
 export function startReminders() {

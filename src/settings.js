@@ -35,6 +35,7 @@ const FIELDS = {
     telegramAlerts: { type: 'bool', label: 'Служебные алерты в Telegram' },
     remindersEnabled: { type: 'bool', label: 'Напоминания об окончании подписки' },
     reminderDays: { type: 'string', label: 'За сколько дней напоминать', max: 20, required: true, pattern: /^\s*\d{1,2}(\s*,\s*\d{1,2})*\s*$/ },
+    renewGraceDays: { type: 'int', label: 'Продление вовремя: дней после окончания', min: 0, max: 60 },
 };
 
 const defaults = () => ({
@@ -51,6 +52,7 @@ const defaults = () => ({
     telegramAlerts: true,
     remindersEnabled: true,
     reminderDays: '3, 1',
+    renewGraceDays: 7,
 });
 
 let settingsCache = null;

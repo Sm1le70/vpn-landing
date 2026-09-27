@@ -48,11 +48,11 @@ function supportDaysUsed(userId) {
 const fmtDate = (d) => new Date(d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Moscow' });
 
 // Сутки в статистике и фильтрах — московские (UTC+3, без перехода на летнее время); в базе время в UTC
-const DAY_MS = 86_400_000;
+export const DAY_MS = 86_400_000;
 const MSK_OFFSET_MS = 3 * 3_600_000;
 const sqlUtc = (ms) => new Date(ms).toISOString().replace('T', ' ').slice(0, 19);
 // Московская дата (YYYY-MM-DD) момента ms
-const mskDate = (ms) => new Date(ms + MSK_OFFSET_MS).toISOString().slice(0, 10);
+export const mskDate = (ms) => new Date(ms + MSK_OFFSET_MS).toISOString().slice(0, 10);
 // Начало московских суток daysAgo дней назад — в UTC, в формате SQLite
 const mskDayStart = (daysAgo = 0) => sqlUtc(Date.parse(`${mskDate(Date.now() - daysAgo * DAY_MS)}T00:00:00+03:00`));
 // Граница фильтра по дате из формы (YYYY-MM-DD, московские сутки) или null, если дата некорректна
