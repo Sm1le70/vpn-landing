@@ -99,10 +99,16 @@ EOF
         if [ -f "backups/env-$stamp" ]; then encrypt_file "$recipient" "backups/env-$stamp"; fi
     fi
 
-    # Храним только последние $KEEP копий (и открытых, и зашифрованных)
-    ls -1t backups/app-*.db backups/app-*.db.age 2>/dev/null | tail -n +"$((KEEP + 1))" | xargs -r rm -f
-    ls -1t backups/env-* 2>/dev/null | tail -n +"$((KEEP + 1))" | xargs -r rm -f
+    prune_backups
     log "копия: $db ($(du -h "$db" | cut -f1))${recipient:+, зашифрована}"
+}
+
+# Храним только последние $KEEP копий (и открытых, и зашифрованных).
+# ls завершается с ошибкой, если какой-то шаблон ничего не нашёл (например, зашифрованных копий нет),
+# а с pipefail это молча остановило бы скрипт — поэтому ошибку ls игнорируем.
+prune_backups() {
+    { ls -1t backups/app-*.db backups/app-*.db.age 2>/dev/null || true; } | tail -n +"$((KEEP + 1))" | xargs -r rm -f
+    { ls -1t backups/env-* 2>/dev/null || true; } | tail -n +"$((KEEP + 1))" | xargs -r rm -f
 }
 
 restore() {

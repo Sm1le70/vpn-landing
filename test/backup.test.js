@@ -61,6 +61,27 @@ test('encrypt_file: остаётся только .age, расшифровыва
     assert.equal(fs.readFileSync(path.join(dir, 'restored.db'), 'utf8'), 'SQLite data');
 });
 
+test('prune_backups: хранит последние BACKUP_KEEP и не останавливает скрипт, если зашифрованных копий нет', { skip }, () => {
+    const b = path.join(dir, 'backups');
+    fs.rmSync(b, { recursive: true, force: true });
+    fs.mkdirSync(b);
+    for (let i = 1; i <= 4; i++) {
+        for (const name of [`app-2026-01-0${i}_04-00.db`, `env-2026-01-0${i}_04-00`]) {
+            const file = path.join(b, name);
+            fs.writeFileSync(file, 'x');
+            fs.utimesSync(file, i * 1000, i * 1000);
+        }
+    }
+    const r = run('prune_backups; echo дальше', { BACKUP_KEEP: '2' });
+    assert.equal(r.code, 0, r.err);
+    assert.equal(r.out, 'дальше', 'после чистки скрипт продолжается');
+    assert.deepEqual(fs.readdirSync(b).sort(), ['app-2026-01-03_04-00.db', 'app-2026-01-04_04-00.db', 'env-2026-01-03_04-00', 'env-2026-01-04_04-00']);
+
+    fs.rmSync(b, { recursive: true });
+    fs.mkdirSync(b);
+    assert.equal(run('prune_backups; echo дальше').out, 'дальше', 'пустой каталог — тоже без ошибки');
+});
+
 test('decrypt_file: без ключа или с чужим ключом — понятная ошибка', { skip }, () => {
     fs.writeFileSync(path.join(dir, 'b.db'), 'x');
     run('encrypt_file age1pub b.db');
