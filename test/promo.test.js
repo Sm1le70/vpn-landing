@@ -73,6 +73,25 @@ describe('applyPromo', () => {
         assert.throws(() => applyPromo(p.code, m1(), user.id), /уже воспользовались/);
         assert.ok(applyPromo(p.code, m1(), createUser().id), 'другому клиенту — можно');
     });
+
+    test('один раз на клиента: второй заказ, пока первый можно оплатить, не получает скидку', () => {
+        const p = promo();
+        const user = createUser();
+        const now = Date.now();
+        // Платёж ещё создаётся (ссылки нет)
+        const o = createOrder(user.id, { promo_code: p.code });
+        assert.throws(() => applyPromo(p.code, m1(), user.id, now), /неоплаченному заказу/);
+        // Ссылка действует — тоже нельзя; другому клиенту можно
+        db.prepare('UPDATE orders SET payment_url = ?, payment_expires_at = ? WHERE id = ?').run('https://pay.test/1', new Date(now + 3_600_000).toISOString(), o.id);
+        assert.throws(() => applyPromo(p.code, m1(), user.id, now), /неоплаченному заказу/);
+        assert.ok(applyPromo(p.code, m1(), createUser().id, now));
+        // Ссылка истекла — код снова доступен
+        db.prepare('UPDATE orders SET payment_expires_at = ? WHERE id = ?').run(new Date(now - 1000).toISOString(), o.id);
+        assert.ok(applyPromo(p.code, m1(), user.id, now));
+        // Заказ не оплачен и закрыт — тоже доступен
+        db.prepare("UPDATE orders SET status = 'canceled', payment_expires_at = NULL WHERE id = ?").run(o.id);
+        assert.ok(applyPromo(p.code, m1(), user.id, now));
+    });
 });
 
 describe('админка', () => {

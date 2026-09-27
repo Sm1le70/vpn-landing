@@ -342,6 +342,10 @@ http.createServer((req, res) => {
             Object.assign(user, body);
             return json(res, 200, { response: user });
         }
+        if ((m = path.match(/^\/api\/users\/by-username\/([^/]+)$/))) {
+            const user = [...users.values()].find((u) => u.username === decodeURIComponent(m[1]));
+            return user ? json(res, 200, { response: user }) : json(res, 404, { message: 'User not found' });
+        }
         if ((m = path.match(/^\/api\/users\/(\d+)$/)) && req.method === 'DELETE') {
             users.delete(Number(m[1]));
             devices.delete(Number(m[1]));

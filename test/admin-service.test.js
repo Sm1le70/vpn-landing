@@ -4,8 +4,9 @@ import assert from 'node:assert/strict';
 import { addRemnaUser, addTransaction, failNext, fakes, resetFakes } from './helpers/fakes.js';
 import { ADMIN, SUPPORT, createOrder, createUser, daysBetween, getOrder, uniqueEmail } from './helpers/factories.js';
 import { db } from '../src/db.js';
-import { extendUser, grantAccess, refundOrder } from '../src/admin/service.js';
-import { getUserRow, handleHwidDeviceAdded } from '../src/subscriptions.js';
+import { deleteAccount, deleteSubscription, extendUser, grantAccess, refundOrder } from '../src/admin/service.js';
+import { getUserRow, handleHwidDeviceAdded, trialAvailable } from '../src/subscriptions.js';
+import { issueStaticLoginCode } from '../src/auth.js';
 
 beforeEach(resetFakes);
 
@@ -107,6 +108,31 @@ describe('grantAccess', () => {
 
     test('только для роли «Администратор»', async () => {
         await assert.rejects(grantAccess(SUPPORT, { email: uniqueEmail(), days: 3, reason: 'проверка' }), /Недостаточно прав/);
+    });
+});
+
+describe('удаление подписки и аккаунта', () => {
+    test('после удаления подписки пробный период снова не выдаётся', async () => {
+        const { user } = subscriber({ days: 10 });
+        await deleteSubscription(ADMIN, user.id, { reason: 'по просьбе клиента' });
+        const u = getUserRow(user.id);
+        assert.equal(u.rw_user_id, null);
+        assert.equal(trialAvailable(u), false);
+    });
+
+    test('бывший пробный клиент после удаления подписки и выдачи доступа — платный', async () => {
+        const rw = addRemnaUser({ hwidDeviceLimit: 1 });
+        const user = createUser({ rw_user_id: rw.id, plan_kind: 'trial', trial_used_at: '2026-01-01 00:00:00' });
+        await deleteSubscription(ADMIN, user.id, { reason: 'пересоздать' });
+        await grantAccess(ADMIN, { email: user.email, days: 30, reason: 'партнёр' });
+        assert.equal(getUserRow(user.id).plan_kind, 'paid');
+    });
+
+    test('удаление аккаунта удаляет и постоянный код входа', async () => {
+        const user = createUser();
+        issueStaticLoginCode(user.email);
+        await deleteAccount(ADMIN, user.id, { reason: 'запрос на удаление данных', confirmEmail: user.email });
+        assert.equal(db.prepare('SELECT COUNT(*) AS n FROM static_login_codes WHERE email = ?').get(user.email).n, 0);
     });
 });
 

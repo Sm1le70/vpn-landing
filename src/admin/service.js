@@ -43,7 +43,8 @@ function supportDaysUsed(userId) {
         .get(String(userId), `-${SUPPORT_EXTEND_WINDOW_DAYS} days`).n;
 }
 
-const fmtDate = (d) => new Date(d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+// Дата в письмах — по Москве: сервер в Docker работает в UTC
+const fmtDate = (d) => new Date(d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Moscow' });
 
 // Сутки в статистике и фильтрах — московские (UTC+3, без перехода на летнее время); в базе время в UTC
 const DAY_MS = 86_400_000;
@@ -158,7 +159,8 @@ async function changeDays(staleUser, days, { allowCreate = true } = {}) {
         // Создание подписки без оплаты — выдача доступа, это право только администратора
         if (!allowCreate) throw new AdminActionError('У пользователя нет подписки. Выдать доступ может только администратор', 403);
         rw = await createRemnaUser(user, { expireAt: addDays(new Date(), days), deviceLimit: getSettings().paidDeviceLimit, note: 'admin' });
-        db.prepare("UPDATE users SET plan_kind = 'paid' WHERE id = ? AND plan_kind = 'none'").run(user.id);
+        // Подписка создана с платным лимитом устройств — клиент платный, даже если раньше был на пробном периоде
+        db.prepare("UPDATE users SET plan_kind = 'paid', trial_blocked = 0 WHERE id = ?").run(user.id);
     } else {
         const now = new Date();
         const current = new Date(rw.expireAt);
@@ -341,10 +343,9 @@ export function deleteSubscription(admin, userId, { reason, notify }) {
     return withUserLock(user.id, async () => {
         const rw = await fetchRemnaUser(user);
         if (rw) await remnawave.deleteUser(rw.id);
-        db.prepare(
-            `UPDATE users SET rw_user_id = NULL, rw_username = NULL, expire_at = NULL, rw_status = NULL,
-                              plan_kind = 'none', blocked = 0 WHERE id = ?`,
-        ).run(user.id);
+        // plan_kind не сбрасываем: клиенту, у которого уже была подписка, пробный период снова не положен
+        // (вернуть его может только «Сброс пробного периода»)
+        db.prepare('UPDATE users SET rw_user_id = NULL, rw_username = NULL, expire_at = NULL, rw_status = NULL, blocked = 0 WHERE id = ?').run(user.id);
         db.prepare('DELETE FROM trial_hwids WHERE user_id = ?').run(user.id);
         const notified = await notifyUser(user, notify, {
             title: 'Подписка удалена',
@@ -383,10 +384,12 @@ export function deleteAccount(admin, userId, { reason, confirmEmail }) {
         tx(() => {
             db.prepare('DELETE FROM sessions WHERE user_id = ?').run(user.id);
             db.prepare('DELETE FROM login_codes WHERE email = ?').run(user.email);
+            // Постоянный код (login-code --permanent) тоже: иначе email остаётся в базе и по коду можно войти
+            db.prepare('DELETE FROM static_login_codes WHERE email = ?').run(user.email);
             db.prepare('DELETE FROM login_events WHERE email = ?').run(user.email);
             db.prepare('DELETE FROM trial_hwids WHERE user_id = ?').run(user.id);
             db.prepare(
-                `UPDATE users SET email = ?, rw_user_id = NULL, rw_username = NULL, expire_at = NULL, rw_status = NULL,
+                `UPDATE users SET email = ?, rw_user_id = NULL, rw_username = NULL, rw_pending_username = NULL, expire_at = NULL, rw_status = NULL,
                                   plan_kind = 'none', trial_used_at = NULL, trial_blocked = 0, blocked = 1 WHERE id = ?`,
             ).run(anonymized, user.id);
             // Email в журнале тоже обезличиваем, иначе удаление данных не полное

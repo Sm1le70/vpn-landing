@@ -367,6 +367,9 @@ addColumn('support_messages', 'sender_auth_details', 'TEXT');
 addColumn('support_threads', 'sender_verified', 'INTEGER');
 // Сброс доступа из консоли: включить отключённого администратора после завершения сброса
 addColumn('admin_setup_tokens', 'enable_admin', 'INTEGER NOT NULL DEFAULT 0');
+// Имя пользователя в панели, запрошенное при создании: если панель создала пользователя, но ответ не дошёл,
+// повтор найдёт его по этому имени и не создаст второго
+addColumn('users', 'rw_pending_username', 'TEXT');
 db.exec('CREATE INDEX IF NOT EXISTS users_expire ON users(expire_at)');
 db.exec('CREATE INDEX IF NOT EXISTS orders_promo ON orders(promo_code)');
 // Отметка пробного периода у платных клиентов (раньше не снималась при оплате) исключала их из напоминаний

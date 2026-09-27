@@ -181,6 +181,25 @@ describe('applyPaidOrder', () => {
         assert.ok(Math.abs(daysBetween(expireAt, rw.expireAt) - 30) < 0.001, 'второй раз не продлено');
     });
 
+    test('ответ панели на создание пользователя потерян: повтор находит его и не создаёт второго', async () => {
+        const user = createUser();
+        const order = createOrder(user.id, { status: 'paid', days: 30 });
+
+        failNext('POST /api/users', 'lost-response');
+        await applyPaidOrder(order.id);
+        assert.equal(getOrder(order.id).status, 'paid', 'после таймаута заказ ждёт повтора');
+        assert.equal(fakes.remnawave.users.size, 1, 'панель уже создала пользователя');
+
+        await applyPaidOrder(order.id);
+        assert.equal(getOrder(order.id).status, 'applied');
+        assert.equal(fakes.remnawave.users.size, 1, 'второй пользователь не создан');
+        const [rw] = fakes.remnawave.users.values();
+        const row = getUserRow(user.id);
+        assert.equal(row.rw_user_id, rw.id);
+        assert.equal(row.rw_pending_username, null);
+        assert.ok(Math.abs(daysBetween(new Date(), rw.expireAt) - 30) < 0.01, 'срок не удвоен');
+    });
+
     test('ошибка панели: заказ остаётся «оплачен», ошибка записана, повтор выдаёт доступ', async () => {
         const user = createUser();
         const order = createOrder(user.id, { status: 'paid', days: 30 });

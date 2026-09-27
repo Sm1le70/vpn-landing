@@ -42,7 +42,8 @@ export function sendLoginCode(to, code) {
 }
 
 export function sendSubscriptionReady(to, { subscriptionUrl, expireAt, isTrial }) {
-    const until = new Date(expireAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+    // По Москве, как в напоминаниях: сервер в Docker работает в UTC
+    const until = new Date(expireAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Moscow' });
     const title = isTrial ? 'Пробный период активирован' : 'Подписка активна';
     return send({
         to,

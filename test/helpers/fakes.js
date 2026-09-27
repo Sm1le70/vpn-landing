@@ -88,6 +88,10 @@ function remnawave(method, path, body, query) {
         Object.assign(user, body);
         return () => json({ response: user });
     }
+    if (method === 'GET' && (m = path.match(/^\/api\/users\/by-username\/([^/]+)$/))) {
+        const user = [...rw.users.values()].find((u) => u.username === decodeURIComponent(m[1]));
+        return user ? () => json({ response: user }) : () => json({ message: 'User not found' }, 404);
+    }
     if ((m = path.match(/^\/api\/users\/(\d+)$/))) {
         const user = rw.users.get(Number(m[1]));
         if (!user) return () => json({ message: 'User not found' }, 404);

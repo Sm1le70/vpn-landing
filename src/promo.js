@@ -1,6 +1,7 @@
 // Промокоды: скидка в процентах или рублях на оплату тарифа.
 // Использование засчитывается оплаченным заказом (а не созданным): лимит и «один раз на клиента»
-// считаются по заказам с этим кодом в статусах после оплаты.
+// считаются по заказам с этим кодом в статусах после оплаты. Для «один раз на клиента» учитывается и
+// неоплаченный заказ клиента, который ещё можно оплатить: иначе два заказа с кодом дали бы две скидки.
 import { db } from './db.js';
 import { findForbidden } from './wording.js';
 import { ValidationError } from './settings.js';
@@ -32,6 +33,16 @@ export function applyPromo(code, plan, userId, now = Date.now()) {
     if (promo.max_uses != null && usesCount(c) >= promo.max_uses) throw new UserFacingError('Промокод больше не действует: все использования исчерпаны');
     const usedByClient = db.prepare(`SELECT 1 FROM orders WHERE promo_code = ? AND user_id = ? AND status IN ${USED_STATUSES}`).get(c, userId);
     if (usedByClient) throw new UserFacingError('Вы уже воспользовались этим промокодом');
+    // Заказ с этим кодом ждёт оплаты: платёж ещё создаётся (ссылки нет) или платёжная ссылка действует
+    const pendingByClient = db
+        .prepare(
+            `SELECT 1 FROM orders WHERE promo_code = ? AND user_id = ? AND status = 'pending'
+             AND (payment_url IS NULL OR payment_expires_at IS NULL OR payment_expires_at > ?)`,
+        )
+        .get(c, userId, new Date(now).toISOString());
+    if (pendingByClient) {
+        throw new UserFacingError('Промокод уже применён к неоплаченному заказу — оплатите его кнопкой «Оплатить» в истории платежей');
+    }
     return { code: c, price: discountedPrice(plan.price, promo), priceBefore: plan.price };
 }
 

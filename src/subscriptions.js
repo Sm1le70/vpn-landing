@@ -65,16 +65,35 @@ export function paidDeviceLimitFor(currentLimit) {
     return Math.max(Number(currentLimit) || 0, standard);
 }
 
+// Пользователь панели, созданный прошлой попыткой, ответ на которую не дошёл (таймаут); null — такого нет
+async function findPendingRemnaUser(username) {
+    try {
+        return await remnawave.getUserByUsername(username);
+    } catch (err) {
+        if (err instanceof RemnawaveError && err.status === 404) return null;
+        throw err;
+    }
+}
+
 export async function createRemnaUser(user, { expireAt, deviceLimit, note }) {
-    const rwUser = await remnawave.createUser({
-        ...baseUserFields(),
-        username: `web${user.id}_${crypto.randomBytes(3).toString('hex')}`,
-        email: user.email,
-        expireAt: expireAt.toISOString(),
-        hwidDeviceLimit: deviceLimit,
-        description: `site: ${user.email} (${note})`,
-    });
-    db.prepare('UPDATE users SET rw_user_id = ?, rw_username = ?, expire_at = ?, rw_status = ? WHERE id = ?').run(
+    // Имя запоминаем до запроса: если ответ панели потеряется, повтор найдёт созданного пользователя и не создаст второго
+    let username = getUserRow(user.id)?.rw_pending_username;
+    let rwUser = username ? await findPendingRemnaUser(username) : null;
+    if (!rwUser) {
+        if (!username) {
+            username = `web${user.id}_${crypto.randomBytes(3).toString('hex')}`;
+            db.prepare('UPDATE users SET rw_pending_username = ? WHERE id = ?').run(username, user.id);
+        }
+        rwUser = await remnawave.createUser({
+            ...baseUserFields(),
+            username,
+            email: user.email,
+            expireAt: expireAt.toISOString(),
+            hwidDeviceLimit: deviceLimit,
+            description: `site: ${user.email} (${note})`,
+        });
+    }
+    db.prepare('UPDATE users SET rw_user_id = ?, rw_username = ?, rw_pending_username = NULL, expire_at = ?, rw_status = ? WHERE id = ?').run(
         rwUser.id,
         rwUser.username,
         new Date(rwUser.expireAt).toISOString(),

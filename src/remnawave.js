@@ -109,6 +109,7 @@ export const remnawave = {
     createUser: (body) => call('POST', '/api/users', body),
     updateUser: (body) => call('PATCH', '/api/users', body),
     getUser: (id) => call('GET', `/api/users/${id}`),
+    getUserByUsername: (username) => call('GET', `/api/users/by-username/${encodeURIComponent(username)}`),
     // Список пользователей панели постранично: { users, total }
     listUsers: (start, size) => call('GET', `/api/users?start=${start}&size=${size}`),
     deleteUser: (id) => call('DELETE', `/api/users/${id}`),
