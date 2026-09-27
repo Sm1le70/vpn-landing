@@ -38,7 +38,31 @@ onUserResponse((rwUser) => {
         rwUser.status,
         rwUser.id,
     );
+    saveActivity(rwUser);
 });
+
+// Активность клиента из ответа панели: первое подключение, последний раз онлайн, трафик за всё время.
+// В Remnawave 2.2+ поля во вложенном userTraffic, в старых версиях — на верхнем уровне; если панель
+// их не прислала, возвращает null
+export function activityOf(rwUser) {
+    const t = rwUser?.userTraffic ?? rwUser ?? {};
+    if (!('firstConnectedAt' in t) && !('lifetimeUsedTrafficBytes' in t)) return null;
+    const iso = (v) => (v ? new Date(v).toISOString() : null);
+    return {
+        firstConnectedAt: iso(t.firstConnectedAt),
+        onlineAt: iso(t.onlineAt),
+        lifetimeTraffic: Math.max(0, Number(t.lifetimeUsedTrafficBytes ?? t.usedTrafficBytes ?? 0) || 0),
+    };
+}
+
+function saveActivity(rwUser) {
+    const a = activityOf(rwUser);
+    if (!a) return;
+    db.prepare(
+        `UPDATE users SET rw_first_connected_at = COALESCE(?, rw_first_connected_at), rw_online_at = COALESCE(?, rw_online_at),
+                          rw_lifetime_traffic = ?, rw_activity_at = ? WHERE rw_user_id = ?`,
+    ).run(a.firstConnectedAt, a.onlineAt, a.lifetimeTraffic, new Date().toISOString(), rwUser.id);
+}
 
 export const getUserRow = (id) => db.prepare('SELECT * FROM users WHERE id = ?').get(id);
 const getOrderRow = (id) => db.prepare('SELECT * FROM orders WHERE id = ?').get(id);
@@ -365,7 +389,40 @@ export async function refreshCachedSubscriptions() {
             // Список получен целиком — пользователя, которого в нём нет, в панели удалили
             if (!rw) markDeleted.run(u.id);
             else if (rw.expireAt && rw.status) update.run(new Date(rw.expireAt).toISOString(), rw.status, u.id);
+            if (rw) saveActivity(rw);
         }
+    });
+    await refreshFirstDevices();
+}
+
+// Первое устройство клиента (для аналитики активации): самое раннее createdAt среди его устройств в панели.
+// Отметка не стирается, если клиент потом отвязал устройство. Ошибка списка устройств не мешает остальному.
+async function refreshFirstDevices() {
+    const first = new Map();
+    const seen = new Set();
+    try {
+        for (let start = 0; ; start += LIST_PAGE_SIZE) {
+            const page = await remnawave.listDevices(start, LIST_PAGE_SIZE);
+            if (!Array.isArray(page?.devices)) throw new Error('неожиданный ответ списка устройств');
+            // Панель не поняла start/size и повторяет страницу — дальше листать бессмысленно
+            const before = seen.size;
+            for (const d of page.devices) seen.add(`${d.userId}:${d.hwid}`);
+            if (start && seen.size === before) break;
+            for (const d of page.devices) {
+                const t = d.createdAt ? new Date(d.createdAt).toISOString() : null;
+                if (t && typeof d.userId === 'number' && !(first.get(d.userId) <= t)) first.set(d.userId, t);
+            }
+            if (page.devices.length < LIST_PAGE_SIZE || start + LIST_PAGE_SIZE >= Number(page.total ?? 0)) break;
+        }
+    } catch (err) {
+        console.warn('[jobs] список устройств панели не получен:', err.message);
+        return;
+    }
+    const update = db.prepare(
+        'UPDATE users SET rw_first_device_at = ? WHERE rw_user_id = ? AND (rw_first_device_at IS NULL OR rw_first_device_at > ?)',
+    );
+    tx(() => {
+        for (const [rwUserId, t] of first) update.run(t, rwUserId, t);
     });
 }
 

@@ -122,6 +122,13 @@ function remnawave(method, path, body, query) {
         const list = rw.devices.get(Number(m[1])) ?? [];
         return () => json({ response: { total: list.length, devices: list } });
     }
+    if (method === 'GET' && path === '/api/hwid/devices') {
+        // Все устройства постранично: ?start=&size= → { devices, total }
+        const all = [...rw.devices.values()].flat();
+        const start = Number(query.get('start') ?? 0);
+        const size = Number(query.get('size') ?? 25);
+        return () => json({ response: { devices: all.slice(start, start + size), total: all.length } });
+    }
     return () => json({ message: `fake remnawave: ${method} ${path} не поддерживается` }, 404);
 }
 

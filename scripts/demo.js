@@ -331,7 +331,12 @@ http.createServer((req, res) => {
         // ---- Remnawave ----
         if (path === '/api/users' && req.method === 'POST') {
             const id = nextUserId++;
-            const user = { id, status: 'ACTIVE', ...body, subscriptionUrl: `https://sub.demo.local/${crypto.randomBytes(8).toString('hex')}` };
+            // Демо-клиент «подключается» сразу после создания подписки
+            const now = new Date().toISOString();
+            const user = {
+                id, status: 'ACTIVE', ...body, subscriptionUrl: `https://sub.demo.local/${crypto.randomBytes(8).toString('hex')}`,
+                userTraffic: { usedTrafficBytes: 0, lifetimeUsedTrafficBytes: 150_000_000, onlineAt: now, firstConnectedAt: now, lastConnectedNodeUuid: null },
+            };
             users.set(id, user);
             devices.set(id, [{ hwid: crypto.randomBytes(6).toString('hex'), userId: id, platform: 'Android', osVersion: '14', deviceModel: 'Pixel 8', userAgent: 'Happ/3.0', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }]);
             return json(res, 201, { response: user });
@@ -382,6 +387,18 @@ http.createServer((req, res) => {
         if ((m = path.match(/^\/api\/hwid\/devices\/(\d+)$/))) {
             const list = devices.get(Number(m[1])) ?? [];
             return json(res, 200, { response: { total: list.length, devices: list } });
+        }
+        if (path === '/api/users' && req.method === 'GET') {
+            const all = [...users.values()];
+            const start = Number(new URL(req.url, MOCK).searchParams.get('start') ?? 0);
+            const size = Number(new URL(req.url, MOCK).searchParams.get('size') ?? 25);
+            return json(res, 200, { response: { users: all.slice(start, start + size), total: all.length } });
+        }
+        if (path === '/api/hwid/devices' && req.method === 'GET') {
+            const all = [...devices.values()].flat();
+            const start = Number(new URL(req.url, MOCK).searchParams.get('start') ?? 0);
+            const size = Number(new URL(req.url, MOCK).searchParams.get('size') ?? 25);
+            return json(res, 200, { response: { devices: all.slice(start, start + size), total: all.length } });
         }
 
         json(res, 404, { message: 'demo: route not mocked' });

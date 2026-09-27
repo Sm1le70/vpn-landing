@@ -112,6 +112,7 @@ export const remnawave = {
     getUserByUsername: (username) => call('GET', `/api/users/by-username/${encodeURIComponent(username)}`),
     // Список пользователей панели постранично: { users, total }
     listUsers: (start, size) => call('GET', `/api/users?start=${start}&size=${size}`),
+    listDevices: (start, size) => call('GET', `/api/hwid/devices?start=${start}&size=${size}`),
     deleteUser: (id) => call('DELETE', `/api/users/${id}`),
     disableUser: (id) => call('POST', `/api/users/${id}/actions/disable`),
     enableUser: (id) => call('POST', `/api/users/${id}/actions/enable`),

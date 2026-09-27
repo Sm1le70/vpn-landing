@@ -97,6 +97,18 @@ tx(() => {
     );
     const reminderStmt = db.prepare('INSERT OR IGNORE INTO expiry_reminders (user_id, expire_at, days_before, sent_at) VALUES (?, ?, ?, ?)');
     let orders = 0;
+    // Активация по «данным панели»: ссылка добавлена в приложение → подключился → есть трафик
+    const activityStmt = db.prepare(
+        `UPDATE users SET rw_first_device_at = ?, rw_first_connected_at = ?, rw_online_at = ?, rw_lifetime_traffic = ?, rw_activity_at = ?
+         WHERE id = ?`,
+    );
+    const activate = (userId, start) => {
+        const device = chance(0.88) ? start + Math.floor((5 + rand() * 600) * 60_000) : null;
+        const connected = device && chance(0.9) ? device + Math.floor((1 + rand() * 120) * 60_000) : null;
+        const bytes = connected && chance(0.95) ? Math.floor(rand() * 40e9) : 0;
+        const iso = (t) => (t && t < now ? new Date(t).toISOString() : null);
+        activityStmt.run(iso(device), iso(connected), iso(connected), bytes, new Date(now).toISOString(), userId);
+    };
 
     for (let i = 1; i <= USERS; i++) {
         // Приток клиентов растёт к сегодняшнему дню
@@ -110,6 +122,7 @@ tx(() => {
         // Посетители, которые так и не вошли в кабинет
         for (let k = 0; k < 3; k++) visit(now - Math.floor(365 * DAY * (1 - Math.sqrt(rand()))));
 
+        if (trial) activate(userId, trial);
         if (!chance(trial ? 0.5 : 0.4)) {
             // Зашёл, но не купил; часть бросила оплату
             if (chance(0.35)) {
@@ -120,6 +133,7 @@ tx(() => {
         }
 
         let paidAt = (trial ? trial + 3 * DAY : created) + Math.floor(rand() * 2 * DAY);
+        if (!trial && paidAt < now) activate(userId, paidAt);
         let expire = 0;
         let plan = pick(planWeights);
         let first = true;

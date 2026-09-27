@@ -430,6 +430,14 @@ addColumn('users', 'utm_campaign', 'TEXT');
 addColumn('users', 'referrer', 'TEXT');
 addColumn('users', 'landing', 'TEXT');
 addColumn('users', 'first_visit_at', 'TEXT');
+// Активация (данные панели, обновляются синхронизацией раз в 30 минут): первое устройство (HWID) — ссылка добавлена
+// в приложение; первое подключение и трафик за всё время. rw_activity_at — когда панель последний раз сообщила
+// эти данные; NULL — ещё не сообщала (такие клиенты не считаются «не подключившимися»)
+addColumn('users', 'rw_first_device_at', 'TEXT');
+addColumn('users', 'rw_first_connected_at', 'TEXT');
+addColumn('users', 'rw_online_at', 'TEXT');
+addColumn('users', 'rw_lifetime_traffic', 'INTEGER');
+addColumn('users', 'rw_activity_at', 'TEXT');
 // Отметка пробного периода у платных клиентов (раньше не снималась при оплате) исключала их из напоминаний
 db.exec("UPDATE users SET trial_blocked = 0 WHERE plan_kind = 'paid' AND trial_blocked = 1");
 

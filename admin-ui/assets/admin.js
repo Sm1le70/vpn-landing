@@ -17,6 +17,15 @@
         if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
         return many;
     };
+    const fmtBytes = (n) => {
+        const units = ['Б', 'КБ', 'МБ', 'ГБ', 'ТБ'];
+        let v = Number(n) || 0, i = 0;
+        while (v >= 1024 && i < units.length - 1) {
+            v /= 1024;
+            i++;
+        }
+        return `${v.toLocaleString('ru-RU', { maximumFractionDigits: i ? 1 : 0 })} ${units[i]}`;
+    };
     const qs = (obj) => new URLSearchParams(Object.entries(obj).filter(([, v]) => v !== '' && v != null)).toString();
 
     const state = { me: null, plans: [] };
@@ -560,6 +569,17 @@
             }).join('')}
         </tr>`).join('');
 
+        // Лестница активации по данным панели: ссылка в приложении → подключение → трафик
+        const activationCard = (title, sub, x, px, from) => `<div class="card">
+            <div class="card-head"><h2>${title}</h2><span class="muted small">${sub}</span></div>
+            <div class="funnel funnel--compact">${funnelBars([['Всего', x.total], ['Добавили ссылку в приложение', x.device], ['Подключились', x.connected], ['Есть трафик', x.traffic]])}</div>
+            <div class="tiles tiles--inner">
+                ${aTile('Подключились', pct(share(x.connected, x.total)), `${x.connected} из ${x.total}`, delta(share(x.connected, x.total), share(px.connected, px.total), { kind: 'rate' }))}
+                ${aTile('До первого подключения', fmtDuration(x.timeToConnect), `медиана, ${from}`)}
+            </div>
+            ${x.noData ? `<p class="muted small">Ещё нет данных панели: ${x.noData} — появятся после синхронизации (раз в 30 минут).</p>` : ''}
+        </div>`;
+
         const m = c.money, pm = p.money;
         const ab = c.abandoned, rf = c.refunds;
         const rem = a.reminders;
@@ -635,6 +655,13 @@
                     ${aTile('Бросили оплату', nPlural(ab.users, ['клиент', 'клиента', 'клиентов']), `из них потом оплатили: ${ab.recovered}`)}
                     ${aTile('Взяли пробный период', f.trial, `${pct(f.registered ? f.trial / f.registered : null)} вошедших`)}
                 </div>
+            </div>
+
+            <h2 class="section-h">Активация</h2>
+            ${a.notConnected ? `<div class="note note--warn" style="margin-bottom:12px">Сейчас подписка действует, но клиент не подключился дольше ${nPlural(a.activationHours, ['часа', 'часов', 'часов'])}: ${a.notConnected}. <a href="#/users?filter=not_connected">Открыть список</a></div>` : ''}
+            <div class="grid-2">
+                ${activationCard('Новые платящие клиенты', 'Первая оплата за период', c.activation.paid, p.activation.paid, 'от оплаты')}
+                ${activationCard('Пробный период', 'Начали пробный за период', c.activation.trial, p.activation.trial, 'от начала пробного')}
             </div>
 
             <h2 class="section-h">Удержание</h2>
@@ -721,7 +748,7 @@
     // --- Пользователи ---
     const USER_FILTERS = [
         ['', 'Все'], ['active', 'Активные'], ['trial', 'Пробный период'], ['expiring', 'Истекают за 3 дня'],
-        ['expired', 'Истекли'], ['disabled', 'Отключены'], ['none', 'Без подписки'],
+        ['expired', 'Истекли'], ['disabled', 'Отключены'], ['none', 'Без подписки'], ['not_connected', 'Не подключились'],
     ];
 
     VIEWS.users = async (view, r) => {
@@ -845,6 +872,10 @@
                         ${u.source ? `<dt>Источник</dt><dd>${esc(u.source.source === 'direct' ? 'прямой заход' : u.source.source)}${[u.source.medium, u.source.campaign].filter(Boolean).map((x) => ` · ${esc(x)}`).join('')}
                             <div class="muted small">${u.source.referrer ? `с ${esc(u.source.referrer)}, ` : ''}первый визит ${fmtDateTime(u.source.firstVisitAt)}</div></dd>` : ''}
                         <dt>Пробный период</dt><dd>${u.trialUsedAt ? `использован ${fmtDate(u.trialUsedAt)}` : 'не использован'}</dd>
+                        ${u.activity ? `<dt>Подключение</dt><dd>${u.activity.firstConnectedAt
+                            ? `первое ${fmtDateTime(u.activity.firstConnectedAt)}${u.activity.onlineAt ? `, последнее ${fmtDateTime(u.activity.onlineAt)}` : ''}`
+                            : `<span class="pill pill--warn">ещё не подключался</span>${u.activity.firstDeviceAt ? ' <span class="muted small">ссылка добавлена в приложение</span>' : ''}`}
+                            <div class="muted small">трафик за всё время: ${fmtBytes(u.activity.lifetimeTraffic)}</div></dd>` : ''}
                         ${(d.telegram || []).length ? `<dt>Telegram</dt><dd>${d.telegram.map((t) => `${t.username ? `<a href="https://t.me/${esc(t.username)}" target="_blank" rel="noopener">@${esc(t.username)}</a>` : esc(t.name || '')} <span class="muted mono">${esc(t.tgUserId)}</span>`).join('<br>')}</dd>` : ''}
                     </dl>
                 </div>
@@ -1481,7 +1512,7 @@
                     <div class="form-row">${numf('trialDays', 'Дней пробного периода', 1, 30)}${numf('trialDeviceLimit', 'Устройств на пробном периоде', 1, 10)}</div>
                 </div></div>
                 <div class="card"><h2>Аналитика</h2><div class="form">
-                    <div class="form-row">${numf('renewGraceDays', 'Продление вовремя: дней после окончания', 0, 60, 'Если клиент оплатил не позже стольких дней после окончания срока, в «Аналитике» это продление, а не возврат после перерыва.')}</div>
+                    <div class="form-row">${numf('renewGraceDays', 'Продление вовремя: дней после окончания', 0, 60, 'Если клиент оплатил не позже стольких дней после окончания срока, в «Аналитике» это продление, а не возврат после перерыва.')}${numf('activationHours', 'Не подключился: часов', 1, 720, 'Сколько часов после оплаты или начала пробного периода ждать первого подключения, прежде чем клиент попадёт в фильтр «Не подключились».')}</div>
                 </div></div>
                 <div class="actions"><button class="btn btn--primary">Сохранить</button></div>
             </form>`;
@@ -1493,7 +1524,7 @@
             data.telegramEmailNotify = f.telegramEmailNotify.checked;
             data.telegramAlerts = f.telegramAlerts.checked;
             data.remindersEnabled = f.remindersEnabled.checked;
-            for (const k of ['paidDeviceLimit', 'trialDays', 'trialDeviceLimit', 'renewGraceDays']) data[k] = Number(data[k]);
+            for (const k of ['paidDeviceLimit', 'trialDays', 'trialDeviceLimit', 'renewGraceDays', 'activationHours']) data[k] = Number(data[k]);
             try {
                 await api('PUT', 'settings', data);
                 state.me = await api('GET', 'me');

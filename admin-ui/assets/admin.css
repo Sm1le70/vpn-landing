@@ -107,6 +107,9 @@ label.field > span { color: var(--muted); font-size: 12px; font-weight: 600; }
 .funnel-track { height: 12px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
 .funnel-bar { height: 100%; background: var(--accent); border-radius: 0 4px 4px 0; }
 .funnel-value b { font-variant-numeric: tabular-nums; }
+/* Воронка в половинной карточке: подпись над полосой */
+.funnel--compact .funnel-row { grid-template-columns: 1fr auto; gap: 4px 12px; }
+.funnel--compact .funnel-track { grid-column: 1 / -1; order: 3; }
 table.cohorts td.heat { color: var(--text); border-bottom: 2px solid var(--surface); border-left: 2px solid var(--surface); }
 table.cohorts td.heat--partial { font-style: italic; }
 b.text { color: var(--text); }

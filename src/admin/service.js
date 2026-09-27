@@ -349,7 +349,11 @@ export function deleteSubscription(admin, userId, { reason, notify }) {
         if (rw) await remnawave.deleteUser(rw.id);
         // plan_kind не сбрасываем: клиенту, у которого уже была подписка, пробный период снова не положен
         // (вернуть его может только «Сброс пробного периода»)
-        db.prepare('UPDATE users SET rw_user_id = NULL, rw_username = NULL, expire_at = NULL, rw_status = NULL, blocked = 0 WHERE id = ?').run(user.id);
+        db.prepare(
+            `UPDATE users SET rw_user_id = NULL, rw_username = NULL, expire_at = NULL, rw_status = NULL, blocked = 0,
+                              rw_first_device_at = NULL, rw_first_connected_at = NULL, rw_online_at = NULL, rw_lifetime_traffic = NULL, rw_activity_at = NULL
+             WHERE id = ?`,
+        ).run(user.id);
         db.prepare('DELETE FROM trial_hwids WHERE user_id = ?').run(user.id);
         const notified = await notifyUser(user, notify, {
             title: 'Подписка удалена',
@@ -394,7 +398,9 @@ export function deleteAccount(admin, userId, { reason, confirmEmail }) {
             db.prepare('DELETE FROM trial_hwids WHERE user_id = ?').run(user.id);
             db.prepare(
                 `UPDATE users SET email = ?, rw_user_id = NULL, rw_username = NULL, rw_pending_username = NULL, expire_at = NULL, rw_status = NULL,
-                                  plan_kind = 'none', trial_used_at = NULL, trial_blocked = 0, trial_devices_allowed = 0, blocked = 1 WHERE id = ?`,
+                                  plan_kind = 'none', trial_used_at = NULL, trial_blocked = 0, trial_devices_allowed = 0, blocked = 1,
+                                  rw_first_device_at = NULL, rw_first_connected_at = NULL, rw_online_at = NULL, rw_lifetime_traffic = NULL, rw_activity_at = NULL
+                              WHERE id = ?`,
             ).run(anonymized, user.id);
             // Email в журнале тоже обезличиваем, иначе удаление данных не полное
             db.prepare("UPDATE audit_log SET target_label = ? WHERE target_type = 'user' AND target_id = ?").run(maskEmail(user.email), String(user.id));
@@ -655,6 +661,10 @@ function publicUser(u) {
         createdAt: u.created_at,
         // Первый переход на сайт (src/tracking.js); null — клиент пришёл до появления счётчика или без cookie
         source: u.source ? { source: u.source, medium: u.utm_medium, campaign: u.utm_campaign, referrer: u.referrer, landing: u.landing, firstVisitAt: u.first_visit_at } : null,
+        // Данные панели об использовании; null — панель ещё не сообщала
+        activity: u.rw_activity_at
+            ? { firstDeviceAt: u.rw_first_device_at, firstConnectedAt: u.rw_first_connected_at, onlineAt: u.rw_online_at, lifetimeTraffic: u.rw_lifetime_traffic ?? 0 }
+            : null,
     };
 }
 
@@ -703,7 +713,13 @@ const USER_FILTERS = {
     disabled: "u.rw_status = 'DISABLED' OR u.blocked = 1",
     none: 'u.rw_user_id IS NULL',
     expiring: "u.rw_status = 'ACTIVE' AND u.expire_at > strftime('%Y-%m-%dT%H:%M:%fZ','now') AND u.expire_at <= strftime('%Y-%m-%dT%H:%M:%fZ','now','+3 days')",
+    // Подписка действует, но клиент так и не подключился за N часов (настройка) после оплаты или начала пробного
+    not_connected: () => `u.rw_activity_at IS NOT NULL AND u.rw_first_connected_at IS NULL AND u.rw_status = 'ACTIVE'
+        AND u.expire_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')
+        AND COALESCE((SELECT MIN(o.paid_at) FROM orders o WHERE o.user_id = u.id AND o.status IN ('applied', 'paid')), u.trial_used_at, u.created_at)
+            <= datetime('now', '-${Number(getSettings().activationHours)} hours')`,
 };
+export const notConnectedCount = () => db.prepare(`SELECT COUNT(*) AS n FROM users u WHERE ${USER_FILTERS.not_connected()}`).get().n;
 
 function userQuery({ q, filter }) {
     const where = [];
@@ -712,7 +728,8 @@ function userQuery({ q, filter }) {
         where.push('u.email LIKE ?');
         params.push(`%${String(q).trim().toLowerCase()}%`);
     }
-    if (filter && USER_FILTERS[filter]) where.push(`(${USER_FILTERS[filter]})`);
+    const cond = Object.hasOwn(USER_FILTERS, filter ?? '') ? USER_FILTERS[filter] : null;
+    if (cond) where.push(`(${typeof cond === 'function' ? cond() : cond})`);
     return { where: where.length ? `WHERE ${where.join(' AND ')}` : '', params };
 }
 

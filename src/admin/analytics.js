@@ -7,7 +7,7 @@
 import { db } from '../db.js';
 import { getPlan, getSettings, listPlans } from '../settings.js';
 import { sourceKey, trafficMetrics } from '../tracking.js';
-import { AdminActionError, DAY_MS, mskDate } from './service.js';
+import { AdminActionError, DAY_MS, mskDate, notConnectedCount } from './service.js';
 
 // Заказы, которые приносят выручку и дни подписки (как в сводке)
 const PAID = new Set(['applied', 'paid']);
@@ -50,10 +50,16 @@ function load() {
         .all()
         .map((o) => ({ ...o, created: toMs(o.created_at), paid: toMs(o.paid_at) }));
     const users = new Map(
-        db.prepare('SELECT id, created_at, trial_used_at, source, utm_campaign FROM users').all()
+        db.prepare(
+            `SELECT id, created_at, trial_used_at, source, utm_campaign,
+                    rw_first_device_at, rw_first_connected_at, rw_lifetime_traffic, rw_activity_at FROM users`,
+        ).all()
             .map((u) => [u.id, {
                 id: u.id, created: toMs(u.created_at), trial: toMs(u.trial_used_at),
                 sourceKey: u.source ? sourceKey(u.source, u.utm_campaign) : '', orders: [], paidOrders: [],
+                activity: u.rw_activity_at
+                    ? { device: toMs(u.rw_first_device_at), connected: toMs(u.rw_first_connected_at), traffic: u.rw_lifetime_traffic > 0 }
+                    : null,
             }]),
     );
     for (const o of orders) users.get(o.user_id)?.orders.push(o);
@@ -361,6 +367,30 @@ function sources(data, range, bySource) {
         .sort((a, b) => b.revenue - a.revenue || b.visitors - a.visitors || b.clients - a.clients);
 }
 
+// Активация: новые платящие клиенты (первая оплата за период) и начавшие пробный период за период.
+// Ступени — по данным панели на сегодня: ссылка добавлена в приложение (появилось устройство), первое подключение,
+// есть трафик. Клиенты, о которых панель ещё не сообщала, не учитываются (noData).
+function activation(data, range) {
+    const ladder = (list, startOf) => {
+        const known = list.filter((u) => u.activity);
+        // Медиана времени от оплаты (начала пробного) до первого подключения; подключившиеся раньше — не в счёт
+        const waits = known.map((u) => u.activity.connected - startOf(u)).filter((ms) => ms > 0);
+        return {
+            total: known.length,
+            noData: list.length - known.length,
+            device: known.filter((u) => u.activity.device != null).length,
+            connected: known.filter((u) => u.activity.connected != null).length,
+            traffic: known.filter((u) => u.activity.traffic).length,
+            timeToConnect: median(waits),
+        };
+    };
+    const users = [...data.users.values()];
+    return {
+        paid: ladder(users.filter((u) => inRange(u.firstPaid, range)), (u) => u.firstPaid),
+        trial: ladder(users.filter((u) => inRange(u.trial, range)), (u) => u.trial),
+    };
+}
+
 export function analytics(query = {}, now = Date.now()) {
     const period = parsePeriod(query, now);
     const { renewGraceDays } = getSettings();
@@ -372,6 +402,7 @@ export function analytics(query = {}, now = Date.now()) {
         abandoned: abandoned(data, range),
         retention: retention(data, range, now, renewGraceDays),
         refunds: refunds(data, range),
+        activation: activation(data, range),
     });
     const current = block(period.cur);
     const previous = block(period.prev);
@@ -389,5 +420,7 @@ export function analytics(query = {}, now = Date.now()) {
         promo: promo(data, period.cur),
         reminders: reminders(data, period.cur, now, renewGraceDays),
         cohorts: cohorts(data, now),
+        activationHours: getSettings().activationHours,
+        notConnected: notConnectedCount(),
     };
 }
