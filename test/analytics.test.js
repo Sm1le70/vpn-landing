@@ -132,6 +132,19 @@ test('воронка по клиентам, вошедшим за период, 
     assert.equal(abandoned.recovered, 1);
 });
 
+test('аккаунт, созданный администратором, попадает в воронку с первого входа клиента', () => {
+    // Выдан доступ в июне, клиент так и не входил — не в воронке и не в источниках
+    createUser({ created_at: at('2026-06-02T10:00:00'), first_login_at: null });
+    // Создан администратором в мае, клиент впервые вошёл в июне и оплатил через сутки
+    const late = createUser({ created_at: at('2026-05-01T10:00:00'), first_login_at: at('2026-06-03T10:00:00') });
+    paidOrder(late, '2026-06-04T10:00:00');
+
+    const a = analytics(JUNE, NOW);
+    assert.deepEqual(a.current.funnel, { registered: 1, trial: 0, ordered: 1, paid: 1 });
+    assert.equal(a.current.money.timeToFirstPay, DAY_MS);
+    assert.equal(a.sources.reduce((s, r) => s + r.clients, 0), 1);
+});
+
 test('возврат и chargeback — не оплата: ни в воронке, ни в конверсии пробного', () => {
     const refunded = createUser({ created_at: at('2026-06-02T10:00:00'), trial_used_at: at('2026-06-02T10:05:00') });
     paidOrder(refunded, '2026-06-03T10:00:00', { status: 'refunded' });

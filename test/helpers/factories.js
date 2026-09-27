@@ -6,10 +6,12 @@ import { findOrCreateUser, getUserRow } from '../../src/subscriptions.js';
 let seq = 0;
 export const uniqueEmail = (prefix = 'user') => `${prefix}${++seq}-${crypto.randomBytes(3).toString('hex')}@test.local`;
 
-// Пользователь сайта; fields — колонки users (rw_user_id, plan_kind, blocked…)
+// Пользователь сайта; fields — колонки users (rw_user_id, plan_kind, blocked…).
+// Клиент на сайте создаётся при первом входе, поэтому first_login_at по умолчанию — момент создания;
+// аккаунт, созданный администратором, в который клиент ещё не входил, — first_login_at: null
 export function createUser(fields = {}) {
     const user = findOrCreateUser(fields.email ?? uniqueEmail());
-    const { email, ...rest } = fields;
+    const { email, ...rest } = { first_login_at: fields.created_at ?? user.first_login_at ?? user.created_at, ...fields };
     const keys = Object.keys(rest);
     if (keys.length) {
         db.prepare(`UPDATE users SET ${keys.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`).run(...Object.values(rest), user.id);

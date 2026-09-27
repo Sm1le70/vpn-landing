@@ -90,7 +90,7 @@ tx(() => {
     promoStmt.run('WELCOME20', 20);
     promoStmt.run('FRIEND15', 15);
 
-    const userStmt = db.prepare("INSERT INTO users (email, plan_kind, trial_used_at, created_at) VALUES (?, ?, ?, ?)");
+    const userStmt = db.prepare("INSERT INTO users (email, plan_kind, trial_used_at, created_at, first_login_at) VALUES (?, ?, ?, ?, ?)");
     const orderStmt = db.prepare(
         `INSERT INTO orders (id, user_id, plan_id, days, amount, status, created_at, paid_at, applied_at, refunded_at, promo_code, price_before)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -114,7 +114,7 @@ tx(() => {
         // Приток клиентов растёт к сегодняшнему дню
         const created = now - Math.floor(365 * DAY * (1 - Math.sqrt(rand())));
         const trial = chance(0.45) ? created + Math.floor(rand() * 2 * 3_600_000) : null;
-        const { lastInsertRowid: userId } = userStmt.run(`seed-${i}@${DOMAIN}`, trial ? 'trial' : 'none', trial ? sql(trial) : null, sql(created));
+        const { lastInsertRowid: userId } = userStmt.run(`seed-${i}@${DOMAIN}`, trial ? 'trial' : 'none', trial ? sql(trial) : null, sql(created), sql(created));
         const firstVisit = created - Math.floor((0.1 + rand() * 2) * 3_600_000);
         const src = visit(firstVisit, { id: userId, trial });
         db.prepare('UPDATE users SET source = ?, utm_medium = ?, utm_campaign = ?, referrer = ?, landing = ?, first_visit_at = ? WHERE id = ?')

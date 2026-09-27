@@ -27,7 +27,7 @@ export const config = {
     brandName: env('BRAND_NAME', 'MyVPN'),
     supportEmail: env('SUPPORT_EMAIL', 'support@example.com'),
     supportTelegram: env('SUPPORT_TELEGRAM').replace(/^@/, ''),
-    docsDate: env('DOCS_DATE', '22.09.2026'),
+    docsDate: env('DOCS_DATE', '27.09.2026'),
     verificationPhrase: env('VERIFICATION_PHRASE'),
     appSecret: env('APP_SECRET', 'dev-secret'),
     databasePath: path.resolve(ROOT_DIR, env('DATABASE_PATH', './data/app.db')),
@@ -85,7 +85,12 @@ export const config = {
     },
 };
 
-if (config.appSecret === 'dev-secret' || config.appSecret.startsWith('change-me')) {
+// От APP_SECRET зависят хэши кодов входа и сессий, резервные коды 2FA и секрет вебхука Telegram:
+// с известным значением по умолчанию их можно подобрать по копии базы. На рабочем сайте такой секрет — ошибка запуска
+if (!config.appSecret || config.appSecret === 'dev-secret' || config.appSecret.startsWith('change-me')) {
+    if (config.isHttps || process.env.NODE_ENV === 'production') {
+        throw new Error('APP_SECRET не задан: запишите в .env длинную случайную строку, например вывод openssl rand -hex 32');
+    }
     console.warn('[config] APP_SECRET не задан — используйте длинную случайную строку в продакшене');
 }
 

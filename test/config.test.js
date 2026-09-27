@@ -31,3 +31,19 @@ test('демо-вход без 2FA: разрешён локально (как в
 test('без демо-флага https и production работают', () => {
     assert.equal(loadConfig({ DEMO_ADMIN_NO_2FA: '', SITE_URL: 'https://example.com', NODE_ENV: 'production' }).ok, true);
 });
+
+test('APP_SECRET: значение по умолчанию или пустое — запуск на рабочем сайте запрещён', () => {
+    for (const APP_SECRET of ['', 'dev-secret', 'change-me-to-a-long-random-string']) {
+        for (const env of [{ SITE_URL: 'https://example.com' }, { SITE_URL: 'http://localhost:3000', NODE_ENV: 'production' }]) {
+            const r = loadConfig({ ...env, APP_SECRET });
+            assert.equal(r.ok, false, `APP_SECRET="${APP_SECRET}" ${JSON.stringify(env)}`);
+            assert.match(r.stderr, /APP_SECRET не задан/);
+        }
+    }
+});
+
+test('APP_SECRET: локально без секрета — только предупреждение', () => {
+    const r = loadConfig({ APP_SECRET: '', SITE_URL: 'http://localhost:3000', NODE_ENV: 'development' });
+    assert.equal(r.ok, true);
+    assert.match(r.stderr, /APP_SECRET не задан/);
+});

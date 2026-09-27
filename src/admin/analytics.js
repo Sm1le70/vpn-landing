@@ -51,11 +51,12 @@ function load() {
         .map((o) => ({ ...o, created: toMs(o.created_at), paid: toMs(o.paid_at) }));
     const users = new Map(
         db.prepare(
-            `SELECT id, created_at, trial_used_at, source, utm_campaign,
+            `SELECT id, first_login_at, trial_used_at, source, utm_campaign,
                     rw_first_device_at, rw_first_connected_at, rw_lifetime_traffic, rw_activity_at FROM users`,
         ).all()
             .map((u) => [u.id, {
-                id: u.id, created: toMs(u.created_at), trial: toMs(u.trial_used_at),
+                // firstLogin — первый вход в кабинет; null — аккаунт создан администратором, клиент ещё не входил
+                id: u.id, firstLogin: toMs(u.first_login_at), trial: toMs(u.trial_used_at),
                 sourceKey: u.source ? sourceKey(u.source, u.utm_campaign) : '', orders: [], paidOrders: [],
                 activity: u.rw_activity_at
                     ? {
@@ -101,7 +102,8 @@ function money(data, range, now) {
     const payers = new Set(paid.map((o) => o.user_id)).size;
     const firstOrders = paid.filter((o) => o.isFirst);
     const newRevenue = round2(firstOrders.reduce((s, o) => s + o.amount, 0));
-    const waits = firstOrders.map((o) => o.paid - data.users.get(o.user_id).created).filter((ms) => ms >= 0);
+    const loginOf = (o) => data.users.get(o.user_id).firstLogin;
+    const waits = firstOrders.filter((o) => loginOf(o) != null).map((o) => o.paid - loginOf(o)).filter((ms) => ms >= 0);
     return {
         revenue,
         payments: paid.length,
@@ -120,7 +122,7 @@ function money(data, range, now) {
 
 // Воронка по клиентам, впервые вошедшим в кабинет за период (дальнейшие шаги — до сегодняшнего дня)
 function funnel(data, range) {
-    const cohort = [...data.users.values()].filter((u) => inRange(u.created, range));
+    const cohort = [...data.users.values()].filter((u) => inRange(u.firstLogin, range));
     const ordered = cohort.filter((u) => u.orders.length);
     const paid = cohort.filter((u) => u.paidOrders.length);
     return {
@@ -361,7 +363,7 @@ function sources(data, range, bySource) {
     };
     for (const { key, n } of bySource) row(key).visitors += n;
     for (const u of data.users.values()) {
-        if (!inRange(u.created, range)) continue;
+        if (!inRange(u.firstLogin, range)) continue;
         const r = row(u.sourceKey);
         r.clients++;
         if (u.paidOrders.length) r.paid++;
