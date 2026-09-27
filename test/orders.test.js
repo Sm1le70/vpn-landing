@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { addRemnaUser, addTransaction, failNext, fakes, resetFakes } from './helpers/fakes.js';
 import { createOrder, createUser, daysBetween, getOrder } from './helpers/factories.js';
 import { applyPaidOrder, getUserRow, markOrderPaid, syncOrderWithPlatega } from '../src/subscriptions.js';
+import { db } from '../src/db.js';
 
 beforeEach(resetFakes);
 
@@ -71,6 +72,7 @@ describe('markOrderPaid', () => {
     test('ID транзакции ещё не сохранён: принимается только с payload = номер заказа', () => {
         const a = createOrder(createUser().id);
         assert.equal(markOrderPaid(a, { id: 'tx-x', payload: a.id, paymentDetails: { amount: 199 } }), true);
+        assert.equal(getOrder(a.id).platega_tx_id, 'tx-x', 'ID транзакции сохранён — для возврата и chargeback');
         const b = createOrder(createUser().id);
         assert.equal(markOrderPaid(b, { id: 'tx-y', payload: 'other-order', paymentDetails: { amount: 199 } }), false);
         const c = createOrder(createUser().id);
@@ -179,6 +181,39 @@ describe('applyPaidOrder', () => {
         assert.equal(getOrder(order.id).status, 'applied');
         assert.equal(getOrder(order.id).error, null);
         assert.ok(Math.abs(daysBetween(expireAt, rw.expireAt) - 30) < 0.001, 'второй раз не продлено');
+    });
+
+    test('после потерянного ответа срок изменил другой заказ: повтор не продлевает, а сообщает администратору', async () => {
+        const expireAt = new Date(Date.now() + 10 * 86_400_000).toISOString();
+        const rw = addRemnaUser({ expireAt });
+        const user = createUser({ rw_user_id: rw.id, plan_kind: 'paid' });
+        const a = createOrder(user.id, { status: 'paid', days: 30 });
+        const b = createOrder(user.id, { status: 'paid', days: 90 });
+
+        failNext('PATCH /api/users', 'lost-response');
+        await applyPaidOrder(a.id);
+        await applyPaidOrder(b.id);
+        await applyPaidOrder(a.id);
+        assert.ok(Math.abs(daysBetween(expireAt, rw.expireAt) - 120) < 0.001, 'дни заказа A не начислены второй раз');
+        assert.equal(getOrder(a.id).status, 'applied');
+        assert.match(getOrder(a.id).error, /не удалось определить/);
+        assert.ok(db.prepare('SELECT 1 FROM alerts WHERE dedup_key = ?').get(`order-ambiguous:${a.id}`));
+    });
+
+    test('ошибка панели, затем другой заказ: повтор первого продлевает', async () => {
+        const expireAt = new Date(Date.now() + 10 * 86_400_000).toISOString();
+        const rw = addRemnaUser({ expireAt });
+        const user = createUser({ rw_user_id: rw.id, plan_kind: 'paid' });
+        const a = createOrder(user.id, { status: 'paid', days: 30 });
+        const b = createOrder(user.id, { status: 'paid', days: 90 });
+
+        failNext('PATCH /api/users', 'error', 500);
+        await applyPaidOrder(a.id);
+        // Срок не изменился — повтор A до заказа B продлевает как обычно
+        await applyPaidOrder(a.id);
+        await applyPaidOrder(b.id);
+        assert.ok(Math.abs(daysBetween(expireAt, rw.expireAt) - 120) < 0.001);
+        assert.equal(getOrder(a.id).error, null);
     });
 
     test('ответ панели на создание пользователя потерян: повтор находит его и не создаёт второго', async () => {

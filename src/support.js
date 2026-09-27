@@ -114,8 +114,8 @@ export function enqueueInbound(data) {
     const emailId = String(data?.email_id ?? '');
     if (!emailId) return false;
     const { changes } = db
-        .prepare('INSERT OR IGNORE INTO support_inbox (email_id, payload) VALUES (?, ?)')
-        .run(emailId, JSON.stringify(data));
+        .prepare('INSERT OR IGNORE INTO support_inbox (email_id, payload, sender_email) VALUES (?, ?, ?)')
+        .run(emailId, JSON.stringify(data), parseAddress(data.from).email);
     if (changes) processInboxItem(emailId).catch((err) => console.error('[support] обработка письма:', err));
     return changes > 0;
 }

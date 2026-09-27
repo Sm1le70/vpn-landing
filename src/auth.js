@@ -124,7 +124,7 @@ export function sessionCookieOptions() {
     return { httpOnly: true, secure: config.isHttps, sameSite: 'lax', maxAge: SESSION_TTL_MS, path: '/' };
 }
 
-function readCookie(req, name) {
+export function readCookie(req, name) {
     const header = req.headers.cookie ?? '';
     for (const part of header.split(';')) {
         const [k, ...v] = part.trim().split('=');

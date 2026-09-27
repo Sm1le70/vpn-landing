@@ -58,3 +58,13 @@ test('зависшая задача: давно не завершалась ил
     release();
     await pending;
 });
+
+test('staleAfterMs: долгий проход не считается зависшим до своего предела', async () => {
+    let release;
+    const run = every('long', MIN, () => new Promise((r) => (release = r)), { staleAfterMs: 45 * MIN });
+    const pending = run();
+    assert.deepEqual(staleJobs(Date.now() + 30 * MIN), []);
+    assert.deepEqual(staleJobs(Date.now() + 46 * MIN), ['long']);
+    release();
+    await pending;
+});

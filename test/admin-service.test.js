@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { addRemnaUser, addTransaction, failNext, fakes, resetFakes } from './helpers/fakes.js';
 import { ADMIN, SUPPORT, createOrder, createUser, daysBetween, getOrder, uniqueEmail } from './helpers/factories.js';
 import { db } from '../src/db.js';
-import { deleteAccount, deleteSubscription, extendUser, grantAccess, refundOrder } from '../src/admin/service.js';
+import { deleteAccount, deleteSubscription, extendUser, grantAccess, refundOrder, resetTrial } from '../src/admin/service.js';
 import { getUserRow, handleHwidDeviceAdded, trialAvailable } from '../src/subscriptions.js';
 import { issueStaticLoginCode } from '../src/auth.js';
 
@@ -262,6 +262,18 @@ describe('продление пробного клиента (задача 1.1)'
         await extendUser(ADMIN, user.id, { days: 30, reason: 'проверка' });
         await handleHwidDeviceAdded(rw.id, 'shared-hwid');
         assert.equal(rw.status, 'ACTIVE');
+    });
+
+    test('сброс пробного периода: проверка устройств не отключает подписку снова', async () => {
+        const { user, rw } = trialSubscriber({ status: 'DISABLED' });
+        db.prepare('UPDATE users SET trial_blocked = 1 WHERE id = ?').run(user.id);
+        // Устройство числится за другим аккаунтом — из-за него подписка и была отключена
+        db.prepare("INSERT INTO trial_hwids (hwid, user_id) VALUES ('reset-hwid', ?)").run(createUser().id);
+        await resetTrial(ADMIN, user.id, { reason: 'проверка' });
+        assert.equal(rw.status, 'ACTIVE');
+        await handleHwidDeviceAdded(rw.id, 'reset-hwid');
+        assert.equal(rw.status, 'ACTIVE');
+        assert.equal(getUserRow(user.id).trial_blocked, 0);
     });
 
     test('сокращение срока пробного — остаётся пробным', async () => {

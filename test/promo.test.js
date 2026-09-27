@@ -55,14 +55,24 @@ describe('applyPromo', () => {
         assert.equal(applyPromo(p.code, m3(), user).price, 439.2);
     });
 
-    test('лимит использований считается по оплаченным заказам', () => {
+    test('лимит использований: оплаченные заказы и заказы, которые ещё можно оплатить', () => {
+        const now = Date.now();
         const p = promo({ maxUses: 2 });
         const [a, b, c] = [createUser(), createUser(), createUser()];
-        createOrder(a.id, { status: 'pending', promo_code: p.code }); // не оплачен — не считается
+        // Ссылка на оплату истекла — не считается
+        createOrder(a.id, { status: 'pending', promo_code: p.code, payment_url: 'https://pay.test/1', payment_expires_at: new Date(now - 1000).toISOString() });
         createOrder(b.id, { status: 'applied', promo_code: p.code });
-        assert.ok(applyPromo(p.code, m1(), c.id));
+        assert.ok(applyPromo(p.code, m1(), c.id, now));
         createOrder(a.id, { status: 'refunded', promo_code: p.code }); // возврат — использование было
-        assert.throws(() => applyPromo(p.code, m1(), c.id), /исчерпаны/);
+        assert.throws(() => applyPromo(p.code, m1(), c.id, now), /исчерпаны/);
+    });
+
+    test('лимит использований: неоплаченные заказы не дают превысить лимит', () => {
+        const now = Date.now();
+        const p = promo({ maxUses: 1 });
+        // Первый клиент создал заказ, ссылка на оплату действует — второй код уже не получит
+        createOrder(createUser().id, { promo_code: p.code, payment_url: 'https://pay.test/1', payment_expires_at: new Date(now + 3_600_000).toISOString() });
+        assert.throws(() => applyPromo(p.code, m1(), createUser().id, now), /исчерпаны/);
     });
 
     test('один раз на клиента', () => {

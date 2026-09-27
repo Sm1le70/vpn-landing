@@ -102,6 +102,8 @@ app.post('/webhooks/remnawave', express.raw({ type: '*/*', limit: '1mb' }), asyn
     const secret = config.remnawave.webhookSecret;
     if (!secret) return res.status(503).json({ error: 'webhook secret not configured' });
 
+    // Без тела express.raw оставляет req.body = {} — такой запрос отклоняется как неподписанный
+    if (!Buffer.isBuffer(req.body)) return res.status(401).json({ error: 'bad signature' });
     const signature = Buffer.from(String(req.headers['x-remnawave-signature'] ?? ''));
     const expected = Buffer.from(crypto.createHmac('sha256', secret).update(req.body).digest('hex'));
     if (signature.length !== expected.length || !crypto.timingSafeEqual(signature, expected)) {

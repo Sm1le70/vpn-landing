@@ -207,8 +207,12 @@ export function passwordStep(login, password, ip) {
 export function secondFactorStep(ticket, code, ip) {
     const t = loginTickets.get(String(ticket ?? ''));
     if (!t || t.expires < Date.now()) throw new AdminAuthError('Сессия входа истекла, введите пароль заново', 401);
+    // Тикет действует только с того IP, где введён пароль
+    if (t.ip !== ip) throw new AdminAuthError('Сессия входа истекла, введите пароль заново', 401);
     const admin = db.prepare('SELECT * FROM admins WHERE id = ?').get(t.adminId);
-    const keys = [`login:${admin.login}`, `ip:${ip}`];
+    // Ошибки второго шага считаются и отдельно: верный пароль сбрасывает счётчик login:, но не 2fa:,
+    // иначе, зная пароль, код можно было бы перебирать без ограничения попыток
+    const keys = [`login:${admin.login}`, `ip:${ip}`, `2fa:${admin.id}`];
     assertNotLocked(keys);
     const ok = verifyTotp(admin.totp_secret, code, `admin:${admin.id}`) || consumeBackupCode(admin, code);
     if (!ok || admin.disabled) {
@@ -217,6 +221,7 @@ export function secondFactorStep(ticket, code, ip) {
     }
     loginTickets.delete(ticket);
     failures.delete(`login:${admin.login}`);
+    failures.delete(`2fa:${admin.id}`);
     return admin;
 }
 

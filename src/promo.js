@@ -1,7 +1,7 @@
 // Промокоды: скидка в процентах или рублях на оплату тарифа.
 // Использование засчитывается оплаченным заказом (а не созданным): лимит и «один раз на клиента»
-// считаются по заказам с этим кодом в статусах после оплаты. Для «один раз на клиента» учитывается и
-// неоплаченный заказ клиента, который ещё можно оплатить: иначе два заказа с кодом дали бы две скидки.
+// считаются по заказам с этим кодом в статусах после оплаты. При проверке кода учитываются и неоплаченные
+// заказы, которые ещё можно оплатить: иначе два заказа с кодом дали бы две скидки, а лимит можно было бы превысить.
 import { db } from './db.js';
 import { findForbidden } from './wording.js';
 import { ValidationError } from './settings.js';
@@ -19,7 +19,13 @@ export function discountedPrice(price, promo) {
     return Math.max(MIN_PRICE, Math.round(raw * 100) / 100);
 }
 
-const usesCount = (code) => db.prepare(`SELECT COUNT(*) AS n FROM orders WHERE promo_code = ? AND status IN ${USED_STATUSES}`).get(code).n;
+// Неоплаченный заказ, который ещё можно оплатить: платёж ещё создаётся (ссылки нет) или платёжная ссылка действует
+const AWAITING_PAYMENT = "status = 'pending' AND (payment_url IS NULL OR payment_expires_at IS NULL OR payment_expires_at > ?)";
+
+// Для лимита использований учитываются и заказы, ожидающие оплаты: иначе при лимите 1 несколько клиентов
+// успели бы создать заказы с кодом, пока ни один не оплачен, и оплатить все
+const usesCount = (code, now) =>
+    db.prepare(`SELECT COUNT(*) AS n FROM orders WHERE promo_code = ? AND (status IN ${USED_STATUSES} OR (${AWAITING_PAYMENT}))`).get(code, new Date(now).toISOString()).n;
 
 // Проверка промокода для клиента и тарифа. Возвращает { code, price, priceBefore } или бросает UserFacingError.
 export function applyPromo(code, plan, userId, now = Date.now()) {
@@ -30,16 +36,11 @@ export function applyPromo(code, plan, userId, now = Date.now()) {
     if (promo.valid_until && now > Date.parse(promo.valid_until)) throw new UserFacingError('Срок действия промокода истёк');
     const planIds = JSON.parse(promo.plan_ids || '[]');
     if (planIds.length && !planIds.includes(plan.id)) throw new UserFacingError('Промокод не действует для этого тарифа');
-    if (promo.max_uses != null && usesCount(c) >= promo.max_uses) throw new UserFacingError('Промокод больше не действует: все использования исчерпаны');
+    if (promo.max_uses != null && usesCount(c, now) >= promo.max_uses) throw new UserFacingError('Промокод больше не действует: все использования исчерпаны');
     const usedByClient = db.prepare(`SELECT 1 FROM orders WHERE promo_code = ? AND user_id = ? AND status IN ${USED_STATUSES}`).get(c, userId);
     if (usedByClient) throw new UserFacingError('Вы уже воспользовались этим промокодом');
-    // Заказ с этим кодом ждёт оплаты: платёж ещё создаётся (ссылки нет) или платёжная ссылка действует
-    const pendingByClient = db
-        .prepare(
-            `SELECT 1 FROM orders WHERE promo_code = ? AND user_id = ? AND status = 'pending'
-             AND (payment_url IS NULL OR payment_expires_at IS NULL OR payment_expires_at > ?)`,
-        )
-        .get(c, userId, new Date(now).toISOString());
+    // Заказ клиента с этим кодом ждёт оплаты
+    const pendingByClient = db.prepare(`SELECT 1 FROM orders WHERE promo_code = ? AND user_id = ? AND ${AWAITING_PAYMENT}`).get(c, userId, new Date(now).toISOString());
     if (pendingByClient) {
         throw new UserFacingError('Промокод уже применён к неоплаченному заказу — оплатите его кнопкой «Оплатить» в истории платежей');
     }

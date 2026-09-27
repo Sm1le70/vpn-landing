@@ -11,6 +11,7 @@ import { every } from './jobs.js';
 import { adminUserUrl, alert } from './alerts.js';
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
+const fmtIso = (d) => d.toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
 export const addDays = (date, days) => new Date(date.getTime() + days * DAY_MS);
 
 // Сколько часов неоплаченный заказ можно оплатить из кабинета; после этого фоновая задача его закрывает.
@@ -155,9 +156,13 @@ export function markOrderPaid(order, transaction) {
         });
         return false;
     }
+    // ID транзакции сохраняем, если заказ найден по payload (ответ на создание платежа не дошёл):
+    // без него не работают возврат и chargeback
     const res = db
-        .prepare("UPDATE orders SET status = 'paid', paid_at = datetime('now') WHERE id = ? AND status IN ('pending', 'canceled')")
-        .run(order.id);
+        .prepare(
+            "UPDATE orders SET status = 'paid', paid_at = datetime('now'), platega_tx_id = COALESCE(platega_tx_id, ?) WHERE id = ? AND status IN ('pending', 'canceled')",
+        )
+        .run(transaction.id ?? null, order.id);
     return res.changes > 0;
 }
 
@@ -179,14 +184,32 @@ export function applyPaidOrder(orderId) {
             } else {
                 const current = new Date(rwUser.expireAt);
                 const target = order.target_expire_at ? new Date(order.target_expire_at) : null;
+                const prev = order.prev_expire_at ? new Date(order.prev_expire_at) : null;
+                const near = (a, b) => Math.abs(a - b) < 60_000;
                 // Прошлая попытка уже продлила подписку, но ответ панели не дошёл (таймаут) — второй раз не продлеваем
-                const alreadyApplied = target && Math.abs(current - target) < 60_000;
+                const alreadyApplied = target && near(current, target);
+                // Срок не равен ни ожидаемому, ни прежнему: после прошлой попытки подписку продлили или сократили
+                // (другой заказ, администратор), и прошло ли продление по этому заказу, узнать нельзя.
+                // Повторное продление могло бы начислить дни дважды — решает администратор.
+                if (!alreadyApplied && target && prev && !near(current, prev)) {
+                    const note = `не удалось определить, продлена ли подписка: ожидался срок ${fmtIso(target)} или ${fmtIso(prev)}, в панели ${fmtIso(current)}`;
+                    db.prepare("UPDATE users SET plan_kind = 'paid', trial_blocked = 0 WHERE id = ?").run(user.id);
+                    db.prepare("UPDATE orders SET status = 'applied', applied_at = datetime('now'), error = ? WHERE id = ? AND status = 'paid'").run(note, order.id);
+                    console.error(`[order ${order.id}] ${note}`);
+                    alert({
+                        key: `order-ambiguous:${order.id}`,
+                        title: 'Проверьте продление по заказу',
+                        lines: [`Пользователь #${order.user_id}, заказ ${order.id}, ${order.days} дн.`, `Причина: ${note}`, `Если дни по заказу не начислены — продлите на ${order.days} дн. вручную.`],
+                        link: adminUserUrl(order.user_id),
+                    });
+                    return;
+                }
                 if (!alreadyApplied) {
                     // Срок считаем сами: от текущей даты окончания, а если она прошла — от сегодня.
                     const base = current > new Date() ? current : new Date();
                     const expireAt = addDays(base, order.days).toISOString();
-                    // Запоминаем ожидаемый срок до запроса: по нему повтор узнает, что продление уже прошло
-                    db.prepare('UPDATE orders SET target_expire_at = ? WHERE id = ?').run(expireAt, order.id);
+                    // Запоминаем ожидаемый и прежний срок до запроса: по ним повтор узнает, прошло ли продление
+                    db.prepare('UPDATE orders SET target_expire_at = ?, prev_expire_at = ? WHERE id = ?').run(expireAt, current.toISOString(), order.id);
                     const patch = { id: rwUser.id, expireAt, hwidDeviceLimit: paidDeviceLimitFor(rwUser.hwidDeviceLimit) };
                     // Отключённого администратором оплата не включает (заказ мог быть создан до отключения)
                     if (!user.blocked) patch.status = 'ACTIVE';
@@ -261,7 +284,7 @@ export function startTrial(userId) {
 
 // Одно устройство — один пробный период. Если HWID уже был на другой пробной подписке, пробная подписка отключается.
 async function checkTrialDevice(user, hwid) {
-    if (user.plan_kind !== 'trial' || user.trial_blocked || !hwid) return;
+    if (user.plan_kind !== 'trial' || user.trial_blocked || user.trial_devices_allowed || !hwid) return;
     const seen = db.prepare('SELECT user_id FROM trial_hwids WHERE hwid = ?').get(hwid);
     if (!seen) {
         db.prepare('INSERT OR IGNORE INTO trial_hwids (hwid, user_id) VALUES (?, ?)').run(hwid, user.id);
@@ -284,7 +307,7 @@ async function pollTrialDevices() {
     if (!getSettings().trialEnabled) return;
     const users = db
         .prepare(
-            `SELECT * FROM users WHERE plan_kind = 'trial' AND trial_blocked = 0 AND rw_user_id IS NOT NULL
+            `SELECT * FROM users WHERE plan_kind = 'trial' AND trial_blocked = 0 AND trial_devices_allowed = 0 AND rw_user_id IS NOT NULL
              AND trial_used_at > datetime('now', ?)`,
         )
         .all(`-${getSettings().trialDays + 1} days`);
@@ -518,7 +541,9 @@ export async function reconcileOrders({ slow = false } = {}) {
 
 export function startBackgroundJobs() {
     let tick = 0;
-    every('orders', 60_000, () => reconcileOrders({ slow: tick++ % SLOW_SYNC_EVERY === 0 }), { firstDelayMs: 5_000 });
+    // Когда Platega отвечает по таймауту (20 с), проход сверки (до 90 запросов) законно идёт до получаса:
+    // /healthz не должен считать такой проход зависшим
+    every('orders', 60_000, () => reconcileOrders({ slow: tick++ % SLOW_SYNC_EVERY === 0 }), { firstDelayMs: 5_000, staleAfterMs: 45 * 60_000 });
     every('trial-devices', 5 * 60_000, pollTrialDevices);
     every('subscriptions-cache', 30 * 60_000, refreshCachedSubscriptions, { firstDelayMs: 30_000 });
 }

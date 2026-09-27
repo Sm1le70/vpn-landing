@@ -353,6 +353,9 @@ addColumn('orders', 'refunded_at', 'TEXT');
 addColumn('orders', 'refund_info', 'TEXT');
 // Срок, до которого продлевает подписку этот заказ: защита от двойного продления при повторе после таймаута
 addColumn('orders', 'target_expire_at', 'TEXT');
+// Срок подписки до продления по этому заказу: если при повторе срок не равен ни прежнему, ни ожидаемому,
+// подписку меняли после прошлой попытки — повтор не продлевает, а сообщает администратору
+addColumn('orders', 'prev_expire_at', 'TEXT');
 // До какого момента действует платёжная ссылка Platega (для кнопки «Оплатить» в кабинете)
 addColumn('orders', 'payment_expires_at', 'TEXT');
 // Первое оповещение об обращении в теме «Обращения»: остальные события приходят ответом на него
@@ -370,6 +373,13 @@ addColumn('admin_setup_tokens', 'enable_admin', 'INTEGER NOT NULL DEFAULT 0');
 // Имя пользователя в панели, запрошенное при создании: если панель создала пользователя, но ответ не дошёл,
 // повтор найдёт его по этому имени и не создаст второго
 addColumn('users', 'rw_pending_username', 'TEXT');
+// Администратор сбросил отключение пробного периода: проверка устройств для текущего пробного периода не применяется
+// (отметка устройства остаётся за первым аккаунтом, иначе проверка сразу отключила бы подписку снова)
+addColumn('users', 'trial_devices_allowed', 'INTEGER NOT NULL DEFAULT 0');
+// Адрес отправителя входящего письма: при удалении аккаунта его письма в очереди удаляются по индексу,
+// без разбора всех сохранённых вебхуков. NULL — письма, полученные до появления колонки
+addColumn('support_inbox', 'sender_email', 'TEXT');
+db.exec('CREATE INDEX IF NOT EXISTS support_inbox_sender ON support_inbox(sender_email)');
 db.exec('CREATE INDEX IF NOT EXISTS users_expire ON users(expire_at)');
 db.exec('CREATE INDEX IF NOT EXISTS orders_promo ON orders(promo_code)');
 // Отметка пробного периода у платных клиентов (раньше не снималась при оплате) исключала их из напоминаний

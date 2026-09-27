@@ -174,6 +174,14 @@ async function sendEvent(row) {
     }
 
     db.prepare('INSERT INTO tg_notify_messages (thread_id, chat_id, message_id) VALUES (?, ?, ?)').run(thread.id, groupId(), sent.message_id);
+    // Обращение удалили вместе с аккаунтом, пока сообщение отправлялось: purgeThreads этого сообщения
+    // ещё не видел — ставим удаление, иначе email и текст письма остались бы в группе
+    if (!db.prepare('SELECT 1 FROM support_threads WHERE id = ?').get(thread.id)) {
+        if (!db.prepare("SELECT 1 FROM tg_outbox WHERE thread_id = ? AND kind = 'purge' AND status = 'pending'").get(thread.id)) {
+            enqueue(thread.id, 'purge', {});
+        }
+        return;
+    }
     // Первое сообщение обращения в теме — на него будут отвечать следующие события
     db.prepare('UPDATE support_threads SET tg_msg_id = ? WHERE id = ? AND tg_msg_id IS NULL').run(sent.message_id, thread.id);
 }

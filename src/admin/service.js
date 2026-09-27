@@ -8,6 +8,7 @@ import { sendAccountNotice } from '../mailer.js';
 import { onAccountUnlinked } from '../tgsupport.js';
 import { purgeThreads } from '../tgnotify.js';
 import { parseAddress } from '../support.js';
+import { isValidEmail, normalizeEmail } from '../auth.js';
 import { getSettings, getPlan } from '../settings.js';
 import {
     addDays,
@@ -216,8 +217,8 @@ export function extendUser(admin, userId, { days, reason, notify }) {
 
 export async function grantAccess(admin, { email, days, planId, reason, notify }) {
     requireAdminRole(admin);
-    const e = String(email ?? '').trim().toLowerCase();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e)) throw new AdminActionError('Некорректный email');
+    const e = normalizeEmail(email);
+    if (!isValidEmail(e)) throw new AdminActionError('Некорректный email');
     // Можно выдать доступ по тарифу — тогда срок берётся из него
     let d = Number(days);
     if (planId) {
@@ -318,11 +319,14 @@ export function resetTrial(admin, userId, { reason }) {
                 const rw = await fetchRemnaUser(user);
                 if (rw?.status === 'DISABLED') await remnawave.enableUser(rw.id);
             }
-            db.prepare('UPDATE users SET trial_blocked = 0 WHERE id = ?').run(user.id);
+            // Устройство по-прежнему числится за другим аккаунтом (trial_hwids), поэтому без разрешения
+            // фоновая проверка устройств через несколько минут отключила бы подписку снова
+            db.prepare('UPDATE users SET trial_blocked = 0, trial_devices_allowed = 1 WHERE id = ?').run(user.id);
             details.unblocked = true;
         }
         if (!user.rw_user_id) {
-            db.prepare("UPDATE users SET trial_used_at = NULL, plan_kind = 'none' WHERE id = ?").run(user.id);
+            // Новый пробный период проверяется по устройствам как обычно
+            db.prepare("UPDATE users SET trial_used_at = NULL, plan_kind = 'none', trial_devices_allowed = 0 WHERE id = ?").run(user.id);
             details.trialAvailableAgain = true;
         }
         db.prepare('DELETE FROM trial_hwids WHERE user_id = ?').run(user.id);
@@ -390,7 +394,7 @@ export function deleteAccount(admin, userId, { reason, confirmEmail }) {
             db.prepare('DELETE FROM trial_hwids WHERE user_id = ?').run(user.id);
             db.prepare(
                 `UPDATE users SET email = ?, rw_user_id = NULL, rw_username = NULL, rw_pending_username = NULL, expire_at = NULL, rw_status = NULL,
-                                  plan_kind = 'none', trial_used_at = NULL, trial_blocked = 0, blocked = 1 WHERE id = ?`,
+                                  plan_kind = 'none', trial_used_at = NULL, trial_blocked = 0, trial_devices_allowed = 0, blocked = 1 WHERE id = ?`,
             ).run(anonymized, user.id);
             // Email в журнале тоже обезличиваем, иначе удаление данных не полное
             db.prepare("UPDATE audit_log SET target_label = ? WHERE target_type = 'user' AND target_id = ?").run(maskEmail(user.email), String(user.id));
@@ -406,9 +410,11 @@ export function deleteAccount(admin, userId, { reason, confirmEmail }) {
             // Оповещения об этих обращениях в теме «Обращения» Telegram удаляются фоновой задачей
             telegramNotificationsPurged = purgeThreads(threadIds);
             supportThreadsDeleted = db.prepare('DELETE FROM support_threads WHERE user_id = ? OR email = ?').run(user.id, user.email).changes;
-            // Отправитель в очереди хранится как в вебхуке — обычно "Имя <email>", поэтому сравниваем разобранный адрес
+            // Письма из очереди входящих: по разобранному адресу отправителя (колонка sender_email)
+            db.prepare('DELETE FROM support_inbox WHERE sender_email = ?').run(user.email);
+            // Письма, полученные до появления колонки: отправитель — как в вебхуке, обычно "Имя <email>"
             const deleteInbox = db.prepare('DELETE FROM support_inbox WHERE email_id = ?');
-            for (const row of db.prepare('SELECT email_id, payload FROM support_inbox').all()) {
+            for (const row of db.prepare('SELECT email_id, payload FROM support_inbox WHERE sender_email IS NULL').all()) {
                 let from = '';
                 try {
                     from = JSON.parse(row.payload).from;

@@ -25,21 +25,9 @@ import {
 import * as svc from './service.js';
 import * as support from './support.js';
 import { createPromo, listPromos, updatePromo } from '../promo.js';
+import { readCookie } from '../auth.js';
 
 const UI_DIR = path.join(ROOT_DIR, 'admin-ui');
-
-function readCookie(req, name) {
-    for (const part of (req.headers.cookie ?? '').split(';')) {
-        const [k, ...v] = part.trim().split('=');
-        if (k !== name) continue;
-        try {
-            return decodeURIComponent(v.join('='));
-        } catch {
-            return null; // битое значение cookie — считаем, что сессии нет
-        }
-    }
-    return null;
-}
 
 const publicAdmin = (a) => ({ id: a.id, login: a.login, role: a.role, roleTitle: ROLES[a.role] });
 

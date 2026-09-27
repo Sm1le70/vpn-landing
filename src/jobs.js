@@ -4,13 +4,14 @@
 const jobs = new Map();
 
 // Задача считается зависшей, если не завершалась дольше STALE_INTERVALS своих интервалов (+ запас)
+// или дольше staleAfterMs, если он задан (для задач, проход которых может законно идти дольше)
 const STALE_INTERVALS = 3;
 const STALE_MARGIN_MS = 60_000;
 
 // Регистрирует задачу: fn раз в intervalMs, первый раз — через firstDelayMs (по умолчанию — через интервал).
 // Возвращает функцию одного прохода (для тестов и ручного запуска).
-export function every(name, intervalMs, fn, { firstDelayMs = null } = {}) {
-    const job = { name, intervalMs, registeredAt: Date.now(), running: false, runStartedAt: null, lastFinishAt: null, lastOkAt: null, lastError: null, skipped: 0 };
+export function every(name, intervalMs, fn, { firstDelayMs = null, staleAfterMs = null } = {}) {
+    const job = { name, intervalMs, staleAfterMs, registeredAt: Date.now(), running: false, runStartedAt: null, lastFinishAt: null, lastOkAt: null, lastError: null, skipped: 0 };
     jobs.set(name, job);
     const run = async () => {
         if (job.running) {
@@ -40,7 +41,7 @@ export function every(name, intervalMs, fn, { firstDelayMs = null } = {}) {
 export function staleJobs(now = Date.now()) {
     const stale = [];
     for (const j of jobs.values()) {
-        const limit = STALE_INTERVALS * j.intervalMs + STALE_MARGIN_MS;
+        const limit = j.staleAfterMs ?? STALE_INTERVALS * j.intervalMs + STALE_MARGIN_MS;
         const since = j.running ? j.runStartedAt : (j.lastFinishAt ?? j.registeredAt);
         if (now - since > limit) stale.push(j.name);
     }
