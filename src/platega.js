@@ -47,6 +47,9 @@ function parseExpiresIn(value) {
 
 // Платёжная ссылка без заданного метода: способ оплаты клиент выбирает на форме Platega.
 export async function createPayment({ orderId, amount, description, userId, email }) {
+    if (typeof email !== 'string' || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+        throw new Error('Для оплаты необходим корректный email аккаунта');
+    }
     const data = await call('POST', '/v2/transaction/process', {
         paymentDetails: { amount, currency: 'RUB' },
         description,
@@ -54,7 +57,8 @@ export async function createPayment({ orderId, amount, description, userId, emai
         failedUrl: `${config.siteUrl}/cabinet?order=${orderId}&failed=1`,
         payload: orderId,
         orderId,
-        metadata: { userId: String(userId), userName: email },
+        // Platega связывает платежи покупателя по metadata.user_email.
+        metadata: { userId: String(userId), userName: email, user_email: email },
     });
     const paymentUrl = data.url ?? data.redirect;
     if (!data.transactionId || !paymentUrl) throw new Error(`Platega: неожиданный ответ ${JSON.stringify(data)}`);
