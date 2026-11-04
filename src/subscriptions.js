@@ -104,6 +104,7 @@ async function findPendingRemnaUser(username) {
 }
 
 export async function createRemnaUser(user, { expireAt, deviceLimit, note }) {
+    user = getUserRow(user.id);
     // Имя запоминаем до запроса: если ответ панели потеряется, повтор найдёт созданного пользователя и не создаст второго
     let username = getUserRow(user.id)?.rw_pending_username;
     let rwUser = username ? await findPendingRemnaUser(username) : null;
@@ -114,12 +115,17 @@ export async function createRemnaUser(user, { expireAt, deviceLimit, note }) {
         }
         rwUser = await remnawave.createUser({
             ...baseUserFields(),
+            status: user.blocked ? 'DISABLED' : 'ACTIVE',
             username,
             email: user.email,
             expireAt: expireAt.toISOString(),
             hwidDeviceLimit: deviceLimit,
             description: `site: ${user.email} (${note})`,
         });
+    }
+    // Восстановленный после таймаута пользователь тоже должен остаться отключённым.
+    if (getUserRow(user.id).blocked && rwUser.status !== 'DISABLED') {
+        rwUser = await remnawave.disableUser(rwUser.id);
     }
     // Новый пользователь панели — данные об использовании прежнего (если его удалили в панели) не переносятся
     db.prepare(
@@ -161,6 +167,12 @@ async function notify(email, rwUser, isTrial) {
 }
 
 // ---------- Заказы ----------
+
+// Callback мог подтвердить оплату раньше, чем завершился запрос создания платежа.
+export function cancelFailedPayment(orderId, err) {
+    db.prepare("UPDATE orders SET status = 'canceled', error = ? WHERE id = ? AND status = 'pending'")
+        .run(String(err.message).slice(0, 500), orderId);
+}
 
 // Почему подтверждённая транзакция Platega не подходит к заказу; null — подходит.
 // Транзакция должна быть этого заказа: её ID сохранён в заказе, а если ещё не сохранён

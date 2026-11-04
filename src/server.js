@@ -24,6 +24,7 @@ import { createPayment, getTransaction, isAuthenticCallback } from './platega.js
 import {
     UserFacingError,
     applyPaidOrder,
+    cancelFailedPayment,
     clientDevices,
     getSubscriptionInfo,
     removeClientDevice,
@@ -456,7 +457,7 @@ app.post(
             );
             res.json({ orderId, paymentUrl });
         } catch (err) {
-            db.prepare("UPDATE orders SET status = 'canceled', error = ? WHERE id = ?").run(String(err.message).slice(0, 500), orderId);
+            cancelFailedPayment(orderId, err);
             throw err;
         }
     }),

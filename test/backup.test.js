@@ -92,3 +92,24 @@ test('decrypt_file: без ключа или с чужим ключом — по
     assert.match(r.err, /тот ли ключ/);
     assert.equal(fs.existsSync(path.join(dir, 'out.db')), false, 'частичный файл удалён');
 });
+
+test('restore: отказ проверки не останавливает контейнер и не заменяет базу', { skip }, () => {
+    fs.mkdirSync(path.join(dir, 'data'), { recursive: true });
+    fs.mkdirSync(path.join(dir, 'scripts'), { recursive: true });
+    fs.copyFileSync(path.join(ROOT_DIR, 'scripts', 'validate-backup.cjs'), path.join(dir, 'scripts', 'validate-backup.cjs'));
+    fs.writeFileSync(path.join(dir, 'data', 'app.db'), 'current database');
+    fs.writeFileSync(path.join(dir, 'invalid.db'), 'APP_SECRET=wrong file');
+    const r = run(`
+docker() {
+    echo "$*" >> docker-calls.txt
+    return 1
+}
+restore invalid.db --yes
+`);
+    assert.notEqual(r.code, 0);
+    assert.match(r.err, /проверка копии не пройдена/);
+    assert.equal(fs.readFileSync(path.join(dir, 'data', 'app.db'), 'utf8'), 'current database');
+    const calls = fs.readFileSync(path.join(dir, 'docker-calls.txt'), 'utf8');
+    assert.match(calls, /compose run/);
+    assert.doesNotMatch(calls, /compose (stop|start)/);
+});

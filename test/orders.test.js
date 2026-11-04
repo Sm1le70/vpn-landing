@@ -3,10 +3,63 @@ import { beforeEach, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { addRemnaUser, addTransaction, failNext, fakes, resetFakes } from './helpers/fakes.js';
 import { createOrder, createUser, daysBetween, getOrder } from './helpers/factories.js';
-import { applyPaidOrder, getUserRow, markOrderPaid, syncOrderWithPlatega } from '../src/subscriptions.js';
+import { applyPaidOrder, cancelFailedPayment, createRemnaUser, getUserRow, markOrderPaid, syncOrderWithPlatega } from '../src/subscriptions.js';
 import { db } from '../src/db.js';
 
 beforeEach(resetFakes);
+
+test('ошибка создания платежа после callback сохраняет оплату и не даёт начислить дни повторно', async () => {
+    for (const applied of [false, true]) {
+        const user = createUser();
+        const order = createOrder(user.id);
+        const transaction = { id: `tx-${order.id}`, payload: order.id, paymentDetails: { amount: order.amount } };
+        assert.equal(markOrderPaid(order, transaction), true);
+        if (applied) await applyPaidOrder(order.id);
+        cancelFailedPayment(order.id, new Error('lost response'));
+        assert.equal(getOrder(order.id).status, applied ? 'applied' : 'paid');
+        assert.equal(markOrderPaid(getOrder(order.id), transaction), false);
+        await applyPaidOrder(order.id);
+        const rw = fakes.remnawave.users.get(getUserRow(user.id).rw_user_id);
+        const expires = rw.expireAt;
+        await applyPaidOrder(order.id);
+        assert.equal(rw.expireAt, expires);
+        assert.ok(Math.abs(daysBetween(new Date(), expires) - order.days) < 0.01);
+    }
+});
+
+test('ошибка создания неподтверждённого платежа отменяет заказ', () => {
+    const order = createOrder(createUser().id);
+    cancelFailedPayment(order.id, new Error('payment failed'));
+    assert.equal(getOrder(order.id).status, 'canceled');
+    assert.equal(getOrder(order.id).error, 'payment failed');
+});
+
+test('пересоздание заблокированного клиента, включая повтор после таймаута, сохраняет блокировку', async () => {
+    for (const lostResponse of [false, true]) {
+        const user = createUser({ blocked: 1, rw_user_id: 999999, plan_kind: 'paid' });
+        const order = createOrder(user.id, { status: 'paid' });
+        if (lostResponse) failNext('POST /api/users', 'lost-response');
+        await applyPaidOrder(order.id);
+        assert.equal([...fakes.remnawave.users.values()].at(-1).status, 'DISABLED');
+        if (lostResponse) await applyPaidOrder(order.id);
+        const fresh = getUserRow(user.id);
+        assert.equal(fresh.blocked, 1);
+        assert.equal(fakes.remnawave.users.get(fresh.rw_user_id).status, 'DISABLED');
+        assert.equal(getOrder(order.id).status, 'applied');
+    }
+});
+
+test('создание читает актуальный запрет доступа, в том числе для найденного после таймаута пользователя', async () => {
+    for (const recovered of [false, true]) {
+        const stale = createUser();
+        const pending = recovered ? addRemnaUser({ username: `pending-${stale.id}` }) : null;
+        db.prepare('UPDATE users SET blocked = 1, rw_pending_username = ? WHERE id = ?').run(pending?.username ?? null, stale.id);
+        const rw = await createRemnaUser(stale, { expireAt: new Date(Date.now() + 86400000), deviceLimit: 3, note: 'admin' });
+        assert.equal(rw.status, 'DISABLED');
+        assert.equal(getUserRow(stale.id).blocked, 1);
+        if (pending) assert.equal(rw.id, pending.id, 'повтор использует уже созданного пользователя');
+    }
+});
 
 // Транзакция Platega этого заказа (payload — номер заказа, как при создании платежа)
 const txFor = (order, paymentDetails = {}) => ({ id: order.platega_tx_id, payload: order.id, paymentDetails: { amount: 199, currency: 'RUB', ...paymentDetails } });

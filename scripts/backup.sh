@@ -132,6 +132,15 @@ restore() {
         [ "$answer" = "yes" ] || fail "отменено"
     fi
 
+    # Отдельный контейнер читает копию, не запуская приложение и миграции.
+    # Передаём проверяющий скрипт с хоста: работает и до пересборки основного образа.
+    local absolute_source
+    absolute_source="$(cd "$(dirname "$source")" && pwd)/$(basename "$source")"
+    docker compose run --rm --no-deps -T --user 0 \
+        -v "$absolute_source:/restore.db:ro" --entrypoint node "$SERVICE" \
+        --input-type=commonjs - /restore.db < scripts/validate-backup.cjs \
+        || fail "восстановление отменено: проверка копии не пройдена; текущая база не изменена"
+
     log "останавливаю контейнер"
     docker compose stop "$SERVICE"
 
