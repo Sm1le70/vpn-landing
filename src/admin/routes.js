@@ -161,6 +161,7 @@ export function adminRouter() {
         telegram: userTelegram(Number(req.params.id)),
     })));
     api.post('/users/:id/extend', wrap((req) => svc.extendUser(req.admin, req.params.id, req.body ?? {})));
+    api.post('/users/:id/device-limit', wrap((req) => svc.setDeviceLimit(req.admin, req.params.id, req.body ?? {})));
     api.post('/users/:id/disable', wrap((req) => svc.setEnabled(req.admin, req.params.id, false, req.body ?? {})));
     api.post('/users/:id/enable', wrap((req) => svc.setEnabled(req.admin, req.params.id, true, req.body ?? {})));
     api.post('/users/:id/reset-devices', wrap((req) => svc.resetDevices(req.admin, req.params.id, req.body ?? {})));

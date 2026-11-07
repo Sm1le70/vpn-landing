@@ -862,6 +862,7 @@
                         ${s ? btn('resend', 'Отправить ссылку на почту') : ''}
                         ${s ? btn('revoke', 'Перевыпустить ссылку') : ''}
                         ${s ? btn('devices', 'Сбросить устройства') : ''}
+                        ${admin && s ? btn('device-limit', 'Изменить лимит устройств') : ''}
                         ${admin && s ? (s.status === 'DISABLED' ? btn('enable', 'Включить') : btn('disable', 'Отключить', 'btn--danger')) : ''}
                         ${admin && (u.trialBlocked || !u.rwUserId) && u.trialUsedAt ? btn('trial', 'Сбросить пробный период') : ''}
                     </div>
@@ -953,6 +954,15 @@
                 onSubmit: async (f) => {
                     const r = await api('POST', `users/${id}/reset-devices`, { reason: f.reason.value, notify: f.notify.checked });
                     done(`Отвязано устройств: ${r.removed}`);
+                },
+            }),
+            'device-limit': () => modal({
+                title: 'Лимит устройств',
+                subtitle: 'Допустимо от 1 до 100 устройств. При лимите ниже текущего числа подключённых устройств новые устройства не подключатся, существующие не удаляются.',
+                body: `<label class="field"><span>Лимит</span><input type="number" name="deviceLimit" min="1" max="100" value="${Number(s.deviceLimit) || 1}" required></label>` + reasonField(),
+                onSubmit: async (f) => {
+                    await api('POST', `users/${id}/device-limit`, { deviceLimit: f.deviceLimit.value, reason: f.reason.value });
+                    done('Лимит устройств изменён');
                 },
             }),
             disable: () => modal({

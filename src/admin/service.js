@@ -215,6 +215,22 @@ export function extendUser(admin, userId, { days, reason, notify }) {
     });
 }
 
+export async function setDeviceLimit(admin, userId, { deviceLimit, reason }) {
+    if (admin.role !== 'admin') throw new AdminActionError('Недостаточно прав', 403);
+    const limit = Number(deviceLimit);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new AdminActionError('Лимит должен быть целым числом от 1 до 100');
+    const r = requireReason(reason);
+    const user = loadUser(userId);
+    return withUserLock(user.id, async () => {
+        const rw = await fetchRemnaUser(getUserRow(user.id));
+        if (!rw) throw new AdminActionError('У пользователя нет подписки');
+        const before = rw.hwidDeviceLimit;
+        const updated = await remnawave.updateUser({ id: rw.id, hwidDeviceLimit: limit });
+        audit(admin, 'user.device_limit', { targetType: 'user', targetId: user.id, targetLabel: user.email, reason: r, details: { before, after: updated.hwidDeviceLimit ?? limit } });
+        return { deviceLimit: updated.hwidDeviceLimit ?? limit };
+    });
+}
+
 export async function grantAccess(admin, { email, days, planId, reason, notify }) {
     requireAdminRole(admin);
     const e = normalizeEmail(email);
