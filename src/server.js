@@ -1,3 +1,4 @@
+import { startBroadcasts } from './broadcasts.js';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import express from 'express';
@@ -555,6 +556,7 @@ const server = app.listen(config.port, () => {
     startEmailNotify();
     startAlerts();
     startReminders();
+    startBroadcasts();
     if (config.admin.demoNo2fa) ensureDemoAdmin();
     ensureBootstrap();
     if (config.admin.path) console.log(`[server] админка: ${config.siteUrl}${config.admin.path}/`);

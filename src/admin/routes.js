@@ -1,3 +1,4 @@
+import * as broadcasts from '../broadcasts.js';
 // Админка: интерфейс и API по секретному пути config.admin.path.
 import path from 'node:path';
 import express from 'express';
@@ -229,6 +230,19 @@ export function adminRouter() {
         return after;
     }));
     // telegramReady — бот запущен и группа поддержки указана (для подсказки у флажков оповещений и алертов)
+    api.get('/broadcasts', adminOnly, wrap(() => broadcasts.broadcastOverview()));
+    api.get('/broadcasts/:id', adminOnly, wrap((req) => broadcasts.broadcastDetails(req.params.id)));
+    api.post('/broadcasts/test', adminOnly, wrap((req) => {
+        const out = broadcasts.createBroadcast(req.admin, req.body, true);
+        svc.audit(req.admin, 'broadcast.test', { targetType: 'broadcast', targetId: out.id });
+        return out;
+    }));
+    api.post('/broadcasts', adminOnly, wrap((req) => {
+        const out = broadcasts.createBroadcast(req.admin, req.body);
+        svc.audit(req.admin, 'broadcast.create', { targetType: 'broadcast', targetId: out.id });
+        return out;
+    }));
+
     api.get('/settings', adminOnly, wrap(() => ({ ...getSettings(), telegramReady: Boolean(supportBotUsername()) })));
     api.put('/settings', adminOnly, wrap((req) => {
         const { before, after } = saveSettings(req.body ?? {});

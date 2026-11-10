@@ -138,6 +138,7 @@
         { path: 'plans', title: 'Тарифы', admin: true },
         { path: 'promo', title: 'Промокоды', admin: true },
         { path: 'apps', title: 'Приложения', admin: true },
+        { path: 'broadcasts', title: 'Рассылки', admin: true },
         { path: 'settings', title: 'Настройки', admin: true },
         { path: 'admins', title: 'Администраторы', admin: true },
         { path: 'audit', title: 'Журнал' },
@@ -1622,6 +1623,54 @@
     };
 
     // --- Журнал ---
+    VIEWS.broadcasts = async (view) => {
+        const data = await api('GET', 'broadcasts');
+        const labels = { pending: 'В очереди', sending: 'Отправляется', sent: 'Принято сервисом', failed: 'Ошибка', skipped: 'Пропущено', unknown: 'Результат неизвестен' };
+        view.innerHTML = `<div class="page-head"><h1>Рассылки</h1><button class="btn" id="refresh-broadcasts">Обновить</button></div>
+            <p class="muted">Обновление VPN-серверов: email и привязанный Telegram. Активных пользователей: ${data.recipients}, включая пробных. Перед отправкой активность проверяется повторно.</p>
+            ${!data.mailReady ? '<p class="note note--bad">Отправка email не настроена.</p>' : ''}
+            ${!data.telegramReady ? '<p class="note">Telegram не настроен: сообщения будут отправлены только по email.</p>' : ''}
+            <form class="card form" id="broadcast-form">
+            <label class="field"><span>Тема</span><input name="subject" required maxlength="200" value="${esc(data.defaults.subject)}"></label>
+            <label class="field"><span>Текст</span><textarea name="text" required maxlength="3000" rows="5">${esc(data.defaults.text)}</textarea></label>
+            <p class="muted">Кнопка «Открыть личный кабинет» добавляется автоматически.</p>
+            <label class="field"><span>Email для теста (регистрация не требуется)</span><input type="email" name="email" placeholder="you@example.com"></label>
+            <div class="actions"><button type="button" class="btn" id="broadcast-test" ${data.mailReady ? '' : 'disabled'}>Отправить тестовое письмо</button>
+            <button class="btn btn--primary" type="submit" ${data.mailReady ? '' : 'disabled'}>Разослать активным пользователям</button></div>
+            <p class="form-error" hidden></p></form>
+            <h2>История (последние 50)</h2><p class="muted">«Принято сервисом» означает успешный ответ email/Telegram API. Для обновления результатов нажмите «Обновить».</p>
+            <div class="table-wrap"><table><thead><tr><th>Дата / автор</th><th>Тема</th><th>Результат по каналам</th><th></th></tr></thead><tbody>${data.history.map(b => `<tr><td>${esc(fmtDateTime(b.created_at))}<br>${esc(b.admin_login)}</td><td>${b.is_test ? '[Тест] ' : ''}${esc(b.subject)}</td><td>${Object.entries(labels).map(([key,label]) => `${label}: ${b[key] || 0}`).join('<br>')}</td><td><button class="btn btn--sm" data-broadcast="${b.id}">Подробнее</button></td></tr>`).join('') || '<tr><td colspan="4">Рассылок пока нет</td></tr>'}</tbody></table></div>`;
+        view.querySelector('#refresh-broadcasts').onclick = () => VIEWS.broadcasts(view);
+        const form = view.querySelector('#broadcast-form');
+        const values = () => Object.fromEntries(new FormData(form));
+        const send = async (test) => {
+            const buttons = [...form.querySelectorAll('button')];
+            buttons.forEach(b => b.disabled = true);
+            const error = form.querySelector('.form-error'); error.hidden = true;
+            try {
+                const out = await api('POST', test ? 'broadcasts/test' : 'broadcasts', values());
+                toast(`Рассылка №${out.id} поставлена в очередь`);
+                await VIEWS.broadcasts(view);
+            } catch (err) { error.textContent = err.message; error.hidden = false; }
+            finally { buttons.forEach(b => b.disabled = false); }
+        };
+        view.querySelector('#broadcast-test').onclick = () => send(true);
+        form.onsubmit = (e) => {
+            e.preventDefault();
+            const input = values();
+            modal({ title: 'Запустить рассылку?', subtitle: `Активных пользователей: ${data.recipients}. Email и привязанный Telegram.`,
+                body: `<strong>${esc(input.subject)}</strong><p style="white-space:pre-wrap">${esc(input.text)}</p>`,
+                submitText: 'Начать отправку', onSubmit: () => send(false) });
+        };
+        view.querySelectorAll('[data-broadcast]').forEach(btn => btn.onclick = async () => {
+            try {
+                const d = await api('GET', `broadcasts/${btn.dataset.broadcast}`);
+                modal({ title: `Рассылка №${btn.dataset.broadcast}`, noSubmit: true,
+                    body: `<strong>${esc(d.broadcast.subject)}</strong><p style="white-space:pre-wrap">${esc(d.broadcast.text)}</p><div class="table-wrap"><table><thead><tr><th>Канал / адрес</th><th>Статус</th><th>Ошибка</th></tr></thead><tbody>${d.deliveries.map(x => `<tr><td>${esc(x.channel)}<br>${esc(x.address)}</td><td>${esc(labels[x.status])}</td><td>${esc(x.error || '—')}</td></tr>`).join('')}</tbody></table></div>` });
+            } catch(err) { toast(err.message, 'bad'); }
+        });
+    };
+
     VIEWS.audit = async (view, r) => {
         const f = { admin: r.query.get('admin') || '', action: r.query.get('action') || '', page: Number(r.query.get('page')) || 1 };
         const [actions, admins] = await Promise.all([api('GET', 'audit/actions'), isAdmin() ? api('GET', 'admins') : Promise.resolve([])]);

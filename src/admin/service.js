@@ -81,6 +81,8 @@ export function audit(admin, action, { targetType = null, targetId = null, targe
 }
 
 export const ACTION_TITLES = {
+    'broadcast.create': 'Запуск рассылки об обновлении серверов',
+    'broadcast.test': 'Тестовое письмо об обновлении серверов',
     'auth.login': 'Вход в админку',
     'auth.setup': 'Настройка доступа',
     'user.extend': 'Продление',

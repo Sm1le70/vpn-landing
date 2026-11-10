@@ -30,6 +30,14 @@ ${body}
 <p style="margin-top:28px;font-size:12px;color:#8a94a8">Поддержка: ${esc(getSettings().supportEmail)}</p>
 </div></body></html>`;
 
+export function sendServerUpdate(to, { subject, text }) {
+    return send({ to, subject,
+        text: `${text}\n\nЛичный кабинет: ${config.siteUrl}/cabinet`,
+        html: layout(`<p style="white-space:pre-wrap;color:#c5cde0">${esc(text)}</p>
+<p><a href="${esc(config.siteUrl)}/cabinet" style="display:inline-block;background:#4f8cff;color:#fff;text-decoration:none;padding:12px 20px;border-radius:8px">Открыть личный кабинет</a></p>`),
+    });
+}
+
 export function sendLoginCode(to, code) {
     return send({
         to,
