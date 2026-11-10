@@ -357,6 +357,7 @@ addColumn('orders', 'target_expire_at', 'TEXT');
 // подписку меняли после прошлой попытки — повтор не продлевает, а сообщает администратору
 addColumn('orders', 'prev_expire_at', 'TEXT');
 // До какого момента действует платёжная ссылка Platega (для кнопки «Оплатить» в кабинете)
+addColumn('alerts', 'channel', "TEXT NOT NULL DEFAULT 'alerts'");
 addColumn('orders', 'payment_expires_at', 'TEXT');
 // Первое оповещение об обращении в теме «Обращения»: остальные события приходят ответом на него
 addColumn('support_threads', 'tg_msg_id', 'INTEGER');

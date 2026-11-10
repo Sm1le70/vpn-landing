@@ -1,7 +1,7 @@
 // Бизнес-логика: выдача и продление подписок, пробный период, проверка HWID.
 import crypto from 'node:crypto';
 import { config } from './config.js';
-import { getSettings } from './settings.js';
+import { getSettings, getPlan } from './settings.js';
 import { db, tx } from './db.js';
 import { remnawave, RemnawaveError, onUserResponse } from './remnawave.js';
 import { getTransaction } from './platega.js';
@@ -204,12 +204,26 @@ export function markOrderPaid(order, transaction) {
     }
     // ID транзакции сохраняем, если заказ найден по payload (ответ на создание платежа не дошёл):
     // без него не работают возврат и chargeback
-    const res = db
-        .prepare(
-            "UPDATE orders SET status = 'paid', paid_at = datetime('now'), platega_tx_id = COALESCE(platega_tx_id, ?) WHERE id = ? AND status IN ('pending', 'canceled')",
-        )
-        .run(transaction.id ?? null, order.id);
-    return res.changes > 0;
+    return tx(() => {
+        const res = db
+            .prepare(
+                "UPDATE orders SET status = 'paid', paid_at = datetime('now'), platega_tx_id = COALESCE(platega_tx_id, ?) WHERE id = ? AND status IN ('pending', 'canceled')",
+            )
+            .run(transaction.id ?? null, order.id);
+        if (res.changes > 0) {
+            const user = getUserRow(order.user_id);
+            const plan = getPlan(order.plan_id, { includeHidden: true });
+            alert({
+                key: `order-paid:${order.id}`,
+                channel: 'payments',
+                title: 'Оплата подписки получена',
+                lines: [`Клиент: ${user.email}`, `Тариф: ${plan?.title ?? order.plan_id}`,
+                    `Сумма: ${order.amount} ₽`, `Заказ: ${order.id}`, `Оплаченный период: ${order.days} дн.`],
+                link: adminUserUrl(order.user_id),
+            });
+        }
+        return res.changes > 0;
+    });
 }
 
 export function applyPaidOrder(orderId) {
@@ -269,6 +283,12 @@ export function applyPaidOrder(orderId) {
             await notify(user.email, rwUser, false);
         } catch (err) {
             console.error(`[order ${order.id}] ошибка выдачи подписки:`, err.message);
+            alert({
+                key: `order-apply-error:${order.id}`,
+                title: 'Ошибка выдачи оплаченной подписки',
+                lines: [`Клиент: ${user.email}, заказ ${order.id}`, `Причина: ${String(err.message).slice(0, 500)}`],
+                link: adminUserUrl(order.user_id),
+            });
             db.prepare('UPDATE orders SET error = ? WHERE id = ?').run(String(err.message).slice(0, 500), order.id);
         }
     });

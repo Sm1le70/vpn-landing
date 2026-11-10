@@ -5,10 +5,10 @@ import assert from 'node:assert/strict';
 import { failNext, fakes, resetFakes } from './helpers/fakes.js';
 import { createOrder, createUser, getOrder } from './helpers/factories.js';
 import { db } from '../src/db.js';
-import { alert, alertTopicId, processAlerts } from '../src/alerts.js';
+import { alert, alertTopicId, paymentTopicId, processAlerts } from '../src/alerts.js';
 import { reportResult, resetHealth } from '../src/health.js';
 import { saveSettings } from '../src/settings.js';
-import { markOrderPaid, reconcileOrders } from '../src/subscriptions.js';
+import { applyPaidOrder, markOrderPaid, reconcileOrders } from '../src/subscriptions.js';
 import { startTelegramSupport, supportBotUsername } from '../src/tgsupport.js';
 
 const sent = () => fakes.telegram.calls.filter((c) => c.method === 'sendMessage' && c.params.message_thread_id === alertTopicId());
@@ -25,7 +25,7 @@ beforeEach(() => {
     resetFakes();
     resetHealth();
     db.exec('DELETE FROM alerts; DELETE FROM orders');
-    saveSettings({ telegramAlerts: true });
+    saveSettings({ telegramAlerts: true, telegramPaymentNotify: true });
 });
 
 describe('alert', () => {
@@ -153,5 +153,64 @@ describe('алерты по заказам', () => {
         assert.ok(r);
         assert.match(r.text, /Оплата не принята/);
         assert.match(r.text, /меньше суммы заказа/);
+    });
+});
+
+
+describe('уведомления об оплатах', () => {
+    const confirm = (order) => markOrderPaid(order, { id: order.platega_tx_id, paymentDetails: { amount: order.amount, currency: 'RUB' } });
+    const paidRows = () => rows().filter((r) => r.channel === 'payments');
+
+    test('подтверждение до выдачи: отдельная тема, реквизиты и защита от дублей', async () => {
+        saveSettings({ telegramAlerts: false });
+        const user = createUser();
+        const order = createOrder(user.id, { txId: 'payment-notice-1' });
+        assert.equal(confirm(order), true);
+        assert.equal(confirm(order), false);
+        await processAlerts();
+        assert.equal(getOrder(order.id).status, 'paid');
+        assert.equal(paidRows().length, 1);
+        assert.equal(paidRows()[0].status, 'done');
+        assert.notEqual(paymentTopicId(), alertTopicId());
+        const msg = fakes.telegram.calls.find((c) => c.method === 'sendMessage' && c.params.message_thread_id === paymentTopicId());
+        assert.ok(msg.params.text.includes(user.email));
+        assert.ok(msg.params.text.includes(order.id));
+        assert.match(msg.params.text, /199 ₽/);
+        assert.match(msg.params.text, /30 дн/);
+        assert.match(msg.params.text, /Тариф: 1 месяц/);
+    });
+
+    test('отдельный переключатель отключает только оплаты', async () => {
+        saveSettings({ telegramPaymentNotify: false });
+        confirm(createOrder(createUser().id, { txId: 'payment-notice-2' }));
+        alert({ title: 'Работающий алерт' });
+        await processAlerts();
+        assert.equal(paidRows()[0].status, 'skipped');
+        assert.equal(sent().length, 1);
+    });
+
+    test('сбой Telegram: запись сохраняется и повторяется', async () => {
+        failNext('POST /bot', 'error', 502);
+        confirm(createOrder(createUser().id, { txId: 'payment-notice-3' }));
+        await processAlerts();
+        assert.equal(paidRows()[0].status, 'pending');
+        db.prepare("UPDATE alerts SET next_attempt_at = 0 WHERE channel = 'payments'").run();
+        await processAlerts();
+        assert.equal(paidRows()[0].status, 'done');
+    });
+
+    test('ошибка выдачи — отдельный алерт без повторного уведомления об оплате', async () => {
+        const order = createOrder(createUser().id, { txId: 'payment-notice-4' });
+        confirm(order);
+        for (let i = 0; i < 2; i++) {
+            failNext('POST /api/users', 'error', 500);
+            await applyPaidOrder(order.id);
+        }
+        await processAlerts();
+        assert.equal(paidRows().length, 1);
+        const errors = rows().filter((r) => r.dedup_key === `order-apply-error:${order.id}`);
+        assert.equal(errors.length, 1);
+        assert.equal(errors[0].channel, 'alerts');
+        assert.equal(errors[0].status, 'done');
     });
 });

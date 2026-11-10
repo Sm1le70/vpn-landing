@@ -1511,6 +1511,7 @@
                     <span class="muted small">${s.telegramReady
                         ? 'Новые письма клиентов, ответы и смены статуса приходят в тему «Обращения» группы поддержки. В оповещениях есть email и начало письма.'
                         : 'Бот поддержки не запущен или не указана группа (TELEGRAM_BOT_TOKEN, TELEGRAM_SUPPORT_CHAT_ID) — оповещения не отправляются.'}</span>
+                    <label class="check"><input type="checkbox" name="telegramPaymentNotify" ${s.telegramPaymentNotify ? 'checked' : ''}> Уведомления об оплатах в Telegram</label>
                     <label class="check"><input type="checkbox" name="telegramAlerts" ${s.telegramAlerts ? 'checked' : ''}> Служебные алерты в Telegram</label>
                     <span class="muted small">${s.telegramReady
                         ? 'В тему «Алерты» группы поддержки: оплаченный заказ не выдан за 10 минут, оплата не принята проверкой, панель или Platega не отвечают. В алертах нет email — только номер пользователя и ссылка.'
@@ -1534,6 +1535,7 @@
             const data = Object.fromEntries(new FormData(f));
             data.trialEnabled = f.trialEnabled.checked;
             data.telegramEmailNotify = f.telegramEmailNotify.checked;
+            data.telegramPaymentNotify = f.telegramPaymentNotify.checked;
             data.telegramAlerts = f.telegramAlerts.checked;
             data.remindersEnabled = f.remindersEnabled.checked;
             for (const k of ['paidDeviceLimit', 'trialDays', 'trialDeviceLimit', 'renewGraceDays', 'activationHours']) data[k] = Number(data[k]);

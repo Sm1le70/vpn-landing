@@ -14,20 +14,21 @@ const RETRY_DELAYS_SEC = [10, 30, 60, 300, 900, 1800, 3600];
 const DAY_MS = 24 * 60 * 60_000;
 
 // Бот запущен, группа указана, алерты включены в админке (Настройки)
-const telegramReady = () => telegramEnabled() && Boolean(groupId()) && getSettings().telegramAlerts;
+const telegramReady = (channel) => telegramEnabled() && Boolean(groupId()) && getSettings()[channel === 'payments' ? 'telegramPaymentNotify' : 'telegramAlerts'];
 
 export const adminUserUrl = (userId) => (config.admin.path ? `${config.siteUrl}${config.admin.path}/#/users/${userId}` : null);
 
 // title и lines — обычный текст (экранируется здесь). link — адрес страницы админки.
 // Возвращает false, если такой алерт уже был в пределах repeatAfterMs.
-export function alert({ key = null, title, lines = [], link = null, repeatAfterMs = DAY_MS }) {
+export function alert({ key = null, title, lines = [], link = null, repeatAfterMs = DAY_MS, channel = 'alerts' }) {
     const now = Date.now();
     if (key && db.prepare('SELECT 1 FROM alerts WHERE dedup_key = ? AND created_at > ?').get(key, now - repeatAfterMs)) return false;
-    console.error(`[alert] ${title}${lines.length ? `: ${lines.join('; ')}` : ''}`);
-    const text = [`🚨 <b>${esc(title)}</b>`, ...lines.map(esc)].join('\n');
+    const log = channel === 'payments' ? console.log : console.error;
+    log(`[alert] ${title}${lines.length ? `: ${lines.join('; ')}` : ''}`);
+    const text = [`${channel === 'payments' ? '💳' : '🚨'} <b>${esc(title)}</b>`, ...lines.map(esc)].join('\n');
     try {
-        db.prepare('INSERT INTO alerts (dedup_key, text, link, status, created_at) VALUES (?, ?, ?, ?, ?)').run(
-            key, text, link, telegramReady() ? 'pending' : 'skipped', now,
+        db.prepare('INSERT INTO alerts (dedup_key, text, link, status, created_at, channel) VALUES (?, ?, ?, ?, ?, ?)').run(
+            key, text, link, telegramReady(channel) ? 'pending' : 'skipped', now, channel,
         );
     } catch (err) {
         // Алерт не должен ломать операцию, которая его вызвала
@@ -38,30 +39,34 @@ export function alert({ key = null, title, lines = [], link = null, repeatAfterM
     return true;
 }
 
-// ---------- Тема «Алерты» ----------
+// ---------- Темы «Алерты» и «Оплаты» ----------
 
-function topicId() {
-    const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(TOPIC_KEY);
+const topicKey = (channel) => channel === 'payments' ? 'tgPaymentTopic' : TOPIC_KEY;
+
+function topicId(channel = 'alerts') {
+    const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(topicKey(channel));
     const v = row ? JSON.parse(row.value) : null;
     return v && String(v.chatId) === groupId() ? v.topicId : null;
 }
 
-function setTopicId(id) {
-    if (!id) return db.prepare('DELETE FROM settings WHERE key = ?').run(TOPIC_KEY);
+function setTopicId(id, channel = 'alerts') {
+    if (!id) return db.prepare('DELETE FROM settings WHERE key = ?').run(topicKey(channel));
     db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(
-        TOPIC_KEY,
+        topicKey(channel),
         JSON.stringify({ chatId: groupId(), topicId: id }),
     );
 }
 
 export const alertTopicId = topicId;
+export const paymentTopicId = () => topicId('payments');
 
-async function ensureTopic() {
-    const existing = topicId();
+async function ensureTopic(channel) {
+    const existing = topicId(channel);
     if (existing) return existing;
-    const topic = await tg('createForumTopic', { chat_id: groupId(), name: TOPIC_NAME });
-    setTopicId(topic.message_thread_id);
-    console.log(`[alert] создана тема «${TOPIC_NAME}» (#${topic.message_thread_id})`);
+    const name = channel === 'payments' ? 'Оплаты' : TOPIC_NAME;
+    const topic = await tg('createForumTopic', { chat_id: groupId(), name });
+    setTopicId(topic.message_thread_id, channel);
+    console.log(`[alert] создана тема «${name}» (#${topic.message_thread_id})`);
     return topic.message_thread_id;
 }
 
@@ -80,13 +85,13 @@ function messageParams(row, topic) {
 }
 
 async function send(row) {
-    let topic = await ensureTopic();
+    let topic = await ensureTopic(row.channel);
     try {
         await tg('sendMessage', messageParams(row, topic));
     } catch (err) {
         if (isTopicGone(err)) {
-            setTopicId(null);
-            topic = await ensureTopic();
+            setTopicId(null, row.channel);
+            topic = await ensureTopic(row.channel);
         } else if (isTopicClosed(err)) {
             await tg('reopenForumTopic', { chat_id: groupId(), message_thread_id: topic }).catch((e) => {
                 if (!isNotModified(e)) throw e;
