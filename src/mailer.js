@@ -31,10 +31,36 @@ ${body}
 </div></body></html>`;
 
 export function sendServerUpdate(to, { subject, text }) {
+    const { brandName, supportEmail } = getSettings();
+    const title = 'Ваш VPN. Обновлённый состав.';
+    const cabinetUrl = `${config.siteUrl}/cabinet`;
+    // Табличная вёрстка и inline-стили для почтовых клиентов, включая Outlook.
     return send({ to, subject,
-        text: `${text}\n\nЛичный кабинет: ${config.siteUrl}/cabinet`,
-        html: layout(`<p style="white-space:pre-wrap;color:#c5cde0">${esc(text)}</p>
-<p><a href="${esc(config.siteUrl)}/cabinet" style="display:inline-block;background:#4f8cff;color:#fff;text-decoration:none;padding:12px 20px;border-radius:8px">Открыть личный кабинет</a></p>`),
+        text: `${brandName}\n\n${title}\n\n${text}\n\nЛичный кабинет: ${cabinetUrl}\n\nПоддержка: ${supportEmail}`,
+        html: `<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark"><meta name="supported-color-schemes" content="dark">
+<style>@media only screen and (max-width:520px){.mail-content{padding:26px!important}.mail-title{font-size:28px!important}.mail-footer{padding:20px 26px!important}}</style>
+</head><body style="margin:0;padding:0;background-color:#0b0f17;color:#e6ebf5;font-family:Arial,Helvetica,sans-serif;-webkit-text-size-adjust:100%">
+<div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;overflow:hidden;mso-hide:all">${esc(text).replace(/\r?\n/g, ' ')}</div>
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="#0b0f17"><tr><td align="center" style="padding:32px 12px">
+<!--[if mso]><table role="presentation" width="480" cellspacing="0" cellpadding="0" border="0"><tr><td><![endif]-->
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="#121826" style="max-width:480px;border:1px solid #293247;border-radius:20px;border-collapse:separate;overflow:hidden">
+<tr><td class="mail-content" style="padding:32px">
+<p style="margin:0 0 40px;font-size:18px;line-height:24px;font-weight:700;color:#e6ebf5">${esc(brandName)}</p>
+<p style="margin:0 0 12px;font-size:11px;line-height:17px;letter-spacing:1.8px;text-transform:uppercase;color:#9daac0">Обновление подписки</p>
+<h1 class="mail-title" style="margin:0 0 18px;font-size:32px;line-height:1.15;letter-spacing:-1px;font-weight:700;color:#e6ebf5">Ваш VPN.<br>Обновлённый состав.</h1>
+<p style="margin:0;font-size:15px;line-height:26px;color:#b8c4d8;overflow-wrap:anywhere;word-break:break-word">${esc(text).replace(/\r\n|\r|\n/g, '<br>')}</p>
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin-top:28px"><tr><td align="center" bgcolor="#3979ef" style="border-radius:10px;mso-padding-alt:16px 20px">
+<a href="${esc(cabinetUrl)}" style="display:block;padding:16px 20px;border:1px solid #3979ef;border-radius:10px;font-size:14px;line-height:20px;font-weight:700;font-family:Arial,Helvetica,sans-serif;color:#ffffff;text-decoration:none;text-align:center">Открыть личный кабинет&nbsp; →</a>
+</td></tr></table>
+</td></tr>
+<tr><td class="mail-footer" style="padding:20px 32px;border-top:1px solid #293247;font-size:12px;line-height:21px;color:#9daac0">
+Нужна помощь? Напишите в поддержку.<br>
+<a href="mailto:${esc(supportEmail)}" style="color:#9daac0;text-decoration:underline">${esc(supportEmail)}</a>
+</td></tr></table>
+<!--[if mso]></td></tr></table><![endif]-->
+</td></tr></table></body></html>`,
     });
 }
 
